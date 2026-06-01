@@ -1,0 +1,126 @@
+---
+name: Docker Build Push
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: Runner label for the build job.
+        required: false
+        type: string
+        default: ubuntu-24.04-arm
+      image:
+        description: Fully qualified image name passed to docker/metadata-action.
+        required: true
+        type: string
+      context:
+        description: Docker build context.
+        required: false
+        type: string
+        default: .
+      file:
+        description: Dockerfile path.
+        required: true
+        type: string
+      platforms:
+        description: Target platforms for docker/build-push-action.
+        required: false
+        type: string
+        default: linux/arm64
+      build-args:
+        description: Multiline Docker build args.
+        required: false
+        type: string
+        default: ""
+      tags:
+        description: Multiline docker/metadata-action tag rules.
+        required: true
+        type: string
+      labels:
+        description: Multiline docker/metadata-action labels.
+        required: false
+        type: string
+        default: ""
+      cache-scope:
+        description: Shared cache scope suffix.
+        required: true
+        type: string
+      short-sha-length:
+        description: DOCKER_METADATA_SHORT_SHA_LENGTH value.
+        required: false
+        type: string
+        default: "7"
+      push:
+        description: Whether to push the built image.
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      github-token:
+        description: Token used to authenticate to GHCR.
+        required: true
+    outputs:
+      tags:
+        description: Generated image tags.
+        value: ${{ jobs.build.outputs.tags }}
+      labels:
+        description: Generated image labels.
+        value: ${{ jobs.build.outputs.labels }}
+      digest:
+        description: Pushed image digest.
+        value: ${{ jobs.build.outputs.digest }}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: Build and publish image
+    runs-on: ${{ inputs.runs-on }}
+    outputs:
+      tags: ${{ steps.meta.outputs.tags }}
+      labels: ${{ steps.meta.outputs.labels }}
+      digest: ${{ steps.build.outputs.digest }}
+    env:
+      DOCKER_METADATA_SHORT_SHA_LENGTH: ${{ inputs.short-sha-length }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.github-token }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ inputs.image }}
+          tags: ${{ inputs.tags }}
+          labels: ${{ inputs.labels }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.file }}
+          platforms: ${{ inputs.platforms }}
+          push: ${{ inputs.push }}
+          build-args: ${{ inputs.build-args }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: |
+            type=registry,ref=${{ inputs.image }}:buildcache-${{ inputs.cache-scope }}
+            type=gha,scope=${{ inputs.cache-scope }}
+          cache-to: |
+            type=registry,ref=${{ inputs.image }}:buildcache-${{ inputs.cache-scope }},mode=max
+            type=gha,mode=max,scope=${{ inputs.cache-scope }}
