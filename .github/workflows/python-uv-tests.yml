@@ -1,0 +1,72 @@
+---
+name: Python UV Tests
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: Runner label for the test job.
+        required: false
+        type: string
+        default: ubuntu-latest
+      python-version:
+        description: Python version passed to actions/setup-python.
+        required: false
+        type: string
+        default: "3.13"
+      working-directory:
+        description: Directory containing the Python project.
+        required: false
+        type: string
+        default: .
+      sync-command:
+        description: Dependency sync command.
+        required: false
+        type: string
+        default: uv sync --extra dev
+      lint-command:
+        description: Optional lint command. Leave empty to skip.
+        required: false
+        type: string
+        default: ""
+      test-command:
+        description: Test command.
+        required: false
+        type: string
+        default: uv run pytest
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test
+    runs-on: ${{ inputs.runs-on }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Setup UV
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: ${{ inputs.sync-command }}
+
+      - name: Lint
+        if: inputs.lint-command != ''
+        run: ${{ inputs.lint-command }}
+
+      - name: Test
+        run: ${{ inputs.test-command }}

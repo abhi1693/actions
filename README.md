@@ -37,3 +37,21 @@ jobs:
     secrets:
       github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
+
+## Python UV Tests
+
+Use `.github/workflows/python-uv-tests.yml` to run a Python project that uses
+`uv` for dependency management.
+
+Example:
+
+```yaml
+jobs:
+  tests:
+    uses: abhi1693/actions/.github/workflows/python-uv-tests.yml@master
+    with:
+      python-version: "3.13"
+      sync-command: uv sync --extra dev
+      lint-command: uv run ruff check .
+      test-command: uv run pytest
+```
