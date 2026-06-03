@@ -23,6 +23,11 @@ on:
         required: false
         type: string
         default: ""
+      source-artifact-path:
+        description: Path where the source artifact should be downloaded.
+        required: false
+        type: string
+        default: .
       file:
         description: Dockerfile path.
         required: true
@@ -129,7 +134,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: ${{ inputs.source-artifact }}
-          path: .
+          path: ${{ inputs.source-artifact-path }}
 
       - name: Set up QEMU
         if: inputs.qemu
