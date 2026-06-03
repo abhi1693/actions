@@ -18,6 +18,11 @@ on:
         required: false
         type: string
         default: .
+      source-artifact:
+        description: Artifact to download into the checked-out workspace before building.
+        required: false
+        type: string
+        default: ""
       file:
         description: Dockerfile path.
         required: true
@@ -27,8 +32,38 @@ on:
         required: false
         type: string
         default: linux/arm64
+      qemu:
+        description: Whether to set up QEMU before Buildx.
+        required: false
+        type: boolean
+        default: false
       build-args:
         description: Multiline Docker build args.
+        required: false
+        type: string
+        default: ""
+      target:
+        description: Dockerfile target stage.
+        required: false
+        type: string
+        default: ""
+      secret-files:
+        description: Multiline Docker secret file mappings.
+        required: false
+        type: string
+        default: ""
+      build-secret-artifact:
+        description: Artifact containing a Docker build secret file.
+        required: false
+        type: string
+        default: ""
+      build-secret-file:
+        description: File name inside the build secret artifact.
+        required: false
+        type: string
+        default: ""
+      build-secret-id:
+        description: Docker BuildKit secret id for the artifact file.
         required: false
         type: string
         default: ""
@@ -89,10 +124,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Download source artifact
+        if: inputs.source-artifact != ''
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.source-artifact }}
+          path: .
+
+      - name: Set up QEMU
+        if: inputs.qemu
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
       - name: Login to GHCR
+        if: inputs.push
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
@@ -107,6 +154,55 @@ jobs:
           tags: ${{ inputs.tags }}
           labels: ${{ inputs.labels }}
 
+      - name: Download build secret artifact
+        if: inputs.build-secret-artifact != ''
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.build-secret-artifact }}
+          path: ${{ runner.temp }}/docker-build-secrets
+
+      - name: Resolve Docker secret files
+        id: secret-files
+        env:
+          BUILD_SECRET_ARTIFACT: ${{ inputs.build-secret-artifact }}
+          BUILD_SECRET_FILE: ${{ inputs.build-secret-file }}
+          BUILD_SECRET_ID: ${{ inputs.build-secret-id }}
+          INPUT_SECRET_FILES: ${{ inputs.secret-files }}
+          SECRET_DIR: ${{ runner.temp }}/docker-build-secrets
+        run: |
+          {
+            echo "value<<EOF"
+            if [ -n "$INPUT_SECRET_FILES" ]; then
+              printf '%s\n' "$INPUT_SECRET_FILES"
+            fi
+            if [ -n "$BUILD_SECRET_ARTIFACT" ]; then
+              printf '%s=%s/%s\n' "$BUILD_SECRET_ID" "$SECRET_DIR" "$BUILD_SECRET_FILE"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Resolve cache settings
+        id: cache
+        env:
+          CACHE_SCOPE: ${{ inputs.cache-scope }}
+          IMAGE: ${{ inputs.image }}
+          PUSH: ${{ inputs.push }}
+        run: |
+          {
+            echo "from<<EOF"
+            if [ "$PUSH" = "true" ]; then
+              printf 'type=registry,ref=%s:buildcache-%s\n' "$IMAGE" "$CACHE_SCOPE"
+            fi
+            printf 'type=gha,scope=%s\n' "$CACHE_SCOPE"
+            echo "EOF"
+            echo "to<<EOF"
+            if [ "$PUSH" = "true" ]; then
+              printf 'type=registry,ref=%s:buildcache-%s,mode=max\n' "$IMAGE" "$CACHE_SCOPE"
+            fi
+            printf 'type=gha,mode=max,scope=%s\n' "$CACHE_SCOPE"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build and push
         id: build
         uses: docker/build-push-action@v7
@@ -114,13 +210,11 @@ jobs:
           context: ${{ inputs.context }}
           file: ${{ inputs.file }}
           platforms: ${{ inputs.platforms }}
+          target: ${{ inputs.target }}
           push: ${{ inputs.push }}
           build-args: ${{ inputs.build-args }}
+          secret-files: ${{ steps.secret-files.outputs.value }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: |
-            type=registry,ref=${{ inputs.image }}:buildcache-${{ inputs.cache-scope }}
-            type=gha,scope=${{ inputs.cache-scope }}
-          cache-to: |
-            type=registry,ref=${{ inputs.image }}:buildcache-${{ inputs.cache-scope }},mode=max
-            type=gha,mode=max,scope=${{ inputs.cache-scope }}
+          cache-from: ${{ steps.cache.outputs.from }}
+          cache-to: ${{ steps.cache.outputs.to }}

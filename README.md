@@ -27,6 +27,7 @@ jobs:
       image: ghcr.io/${{ github.repository }}/example
       context: .
       file: Dockerfile
+      platforms: linux/arm64
       cache-scope: example
       tags: |
         type=raw,value=latest
@@ -37,6 +38,10 @@ jobs:
     secrets:
       github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
+
+Optional inputs include `source-artifact`, `qemu`, `target`, `build-args`,
+`secret-files`, and `build-secret-artifact`/`build-secret-file`/
+`build-secret-id` for Docker BuildKit secret files produced by a previous job.
 
 ## Python UV Tests
 
