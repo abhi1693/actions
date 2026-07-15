@@ -39,8 +39,8 @@ jobs:
       github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-Optional inputs include `source-artifact`, `source-artifact-path`, `qemu`,
-`target`, `build-args`, `secret-files`, and `build-secret-artifact`/
+Optional inputs include `source-artifact`, `source-artifact-path`, `target`,
+`build-args`, `secret-files`, and `build-secret-artifact`/
 `build-secret-file`/`build-secret-id` for Docker BuildKit secret files produced
 by a previous job.
 

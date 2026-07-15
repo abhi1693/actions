@@ -37,11 +37,6 @@ on:
         required: false
         type: string
         default: linux/arm64
-      qemu:
-        description: Whether to set up QEMU before Buildx.
-        required: false
-        type: boolean
-        default: false
       build-args:
         description: Multiline Docker build args.
         required: false
@@ -135,10 +130,6 @@ jobs:
         with:
           name: ${{ inputs.source-artifact }}
           path: ${{ inputs.source-artifact-path }}
-
-      - name: Set up QEMU
-        if: inputs.qemu
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
