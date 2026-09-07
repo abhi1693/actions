@@ -62,3 +62,10 @@ jobs:
       lint-command: uv run ruff check .
       test-command: uv run pytest
 ```
+
+Python callers can set `uv-version` for toolchain parity and
+`test-results-path` / `test-results-name` to retain test reports, including on
+failure. Matrix callers must use distinct artifact names. Docker callers can
+set `flavor: latest=false` to disable automatic moving tags. All new inputs are
+optional; existing callers retain their defaults. Action references are pinned
+to commit SHAs and maintained by Dependabot.
