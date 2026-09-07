@@ -72,14 +72,15 @@ to commit SHAs and maintained by Dependabot.
 
 ## Native multi-platform Docker images
 
-`docker-multi-platform.yml` calls `docker-build-push.yml` on native AMD64 and
-ARM64 runners, then combines their exact digests into a verified OCI index.
-It accepts `image`, `file`, `context`, `labels`, `cache-scope`, and the
-`github-token` secret. Outputs are `digest` and `tags` for the resulting index.
-Callers must grant `contents: read` and `packages: write` and gate the call on
-successful tests/security checks. This workflow always publishes candidates;
-callers own subsequent vulnerability scanning and release approval.
+Use the existing `docker-build-push.yml` with `native-multi-platform: true` and
+`push: true` to build on native AMD64 and ARM64 runners and assemble one verified
+OCI index. The default is `false`, preserving existing single-runner/QEMU callers.
+All existing build, metadata, secret and cache inputs remain supported.
 
-Tags are `sha-<full-commit>-<run-id>-<run-attempt>`; native intermediates add
-`-amd64` or `-arm64`. Partial reruns compute their identity within the rerun job.
-No latest/version aliases are generated. Deploy digests only after verification.
+Set `image-title` (for example `Admin API`) for distinct service/platform job
+names. Use a unique `cache-scope` for each concurrent image; native mode adds
+architecture suffixes to its registry/GHA caches and transient digest artifacts.
+The intermediate platform tags are unique candidates. The final index uses the
+caller's existing `tags`/`flavor` rules and returns `digest`, `tags` and `labels`.
+Callers control mutable branch aliases and immutable release-tag promotion after
+scanning; they must grant `contents: read` and `packages: write`.

@@ -9,6 +9,16 @@ on:
         required: false
         type: string
         default: ubuntu-24.04-arm
+      image-title:
+        description: Human-readable service name in the Actions job graph.
+        required: false
+        type: string
+        default: ""
+      native-multi-platform:
+        description: Build AMD64 and ARM64 natively and combine their digests. Requires push.
+        required: false
+        type: boolean
+        default: false
       image:
         description: Fully qualified image name passed to docker/metadata-action.
         required: true
@@ -107,13 +117,13 @@ on:
     outputs:
       tags:
         description: Generated image tags.
-        value: ${{ jobs.build.outputs.tags }}
+        value: ${{ jobs.index.outputs.tags || jobs.build.outputs.tags }}
       labels:
         description: Generated image labels.
-        value: ${{ jobs.build.outputs.labels }}
+        value: ${{ jobs.index.outputs.labels || jobs.build.outputs.labels }}
       digest:
         description: Pushed image digest.
-        value: ${{ jobs.build.outputs.digest }}
+        value: ${{ jobs.index.outputs.digest || jobs.build.outputs.digest }}
 
 permissions:
   contents: read
@@ -121,8 +131,16 @@ permissions:
 
 jobs:
   build:
-    name: Build and publish image
-    runs-on: ${{ inputs.runs-on }}
+    name: ${{ inputs.image-title || inputs.image }} — ${{ matrix.platform }} build
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include: >-
+          ${{ fromJSON(inputs.native-multi-platform &&
+              '[{"runner":"ubuntu-24.04","platform":"linux/amd64","suffix":"amd64"},{"runner":"ubuntu-24.04-arm","platform":"linux/arm64","suffix":"arm64"}]' ||
+              format('[{{"runner":{0},"platform":{1},"suffix":""}}]', toJSON(inputs.runs-on), toJSON(inputs.platforms))) }}
     outputs:
       tags: ${{ steps.meta.outputs.tags }}
       labels: ${{ steps.meta.outputs.labels }}
@@ -131,6 +149,11 @@ jobs:
       DOCKER_METADATA_SHORT_SHA_LENGTH: ${{ inputs.short-sha-length }}
 
     steps:
+      - name: Validate native publication mode
+        if: inputs.native-multi-platform && !inputs.push
+        run: |
+          echo 'native-multi-platform requires push=true so digests can be assembled in the registry' >&2
+          exit 1
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -142,7 +165,7 @@ jobs:
           path: ${{ inputs.source-artifact-path }}
 
       - name: Set up QEMU
-        if: inputs.qemu
+        if: inputs.qemu && !inputs.native-multi-platform
         uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
 
       - name: Set up Docker Buildx
@@ -161,8 +184,10 @@ jobs:
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ inputs.image }}
-          flavor: ${{ inputs.flavor }}
-          tags: ${{ inputs.tags }}
+          flavor: ${{ inputs.native-multi-platform && 'latest=false' || inputs.flavor }}
+          tags: >-
+            ${{ inputs.native-multi-platform &&
+                format('type=raw,value=candidate-{0}-{1}-{2}-{3}', github.sha, github.run_id, github.run_attempt, matrix.suffix) || inputs.tags }}
           labels: ${{ inputs.labels }}
 
       - name: Download build secret artifact
@@ -195,7 +220,7 @@ jobs:
       - name: Resolve cache settings
         id: cache
         env:
-          CACHE_SCOPE: ${{ inputs.cache-scope }}
+          CACHE_SCOPE: ${{ inputs.native-multi-platform && format('{0}-{1}', inputs.cache-scope, matrix.suffix) || inputs.cache-scope }}
           IMAGE: ${{ inputs.image }}
           PUSH: ${{ inputs.push }}
         run: |
@@ -220,7 +245,7 @@ jobs:
         with:
           context: ${{ inputs.context }}
           file: ${{ inputs.file }}
-          platforms: ${{ inputs.platforms }}
+          platforms: ${{ matrix.platform }}
           target: ${{ inputs.target }}
           push: ${{ inputs.push }}
           build-args: ${{ inputs.build-args }}
@@ -229,3 +254,85 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: ${{ steps.cache.outputs.from }}
           cache-to: ${{ steps.cache.outputs.to }}
+
+      - name: Record native image digest
+        if: inputs.native-multi-platform
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          ARCH: ${{ matrix.suffix }}
+        run: |
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "$DIGEST" > "$RUNNER_TEMP/$ARCH.digest"
+      - name: Upload native digest for index assembly
+        if: inputs.native-multi-platform
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-digest-${{ inputs.cache-scope }}-${{ matrix.suffix }}
+          path: ${{ runner.temp }}/${{ matrix.suffix }}.digest
+          # Transient per-run handoff: a partial rerun replaces only its own platform.
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 7
+
+  index:
+    name: ${{ inputs.image-title || inputs.image }} — assemble index
+    if: inputs.native-multi-platform && inputs.push
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      tags: ${{ steps.meta.outputs.tags }}
+      labels: ${{ steps.meta.outputs.labels }}
+      digest: ${{ steps.index.outputs.digest }}
+    env:
+      DOCKER_METADATA_SHORT_SHA_LENGTH: ${{ inputs.short-sha-length }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: native-digest-${{ inputs.cache-scope }}-*
+          path: ${{ runner.temp }}/native-digests
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.github-token }}
+      - name: Index metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ inputs.image }}
+          tags: ${{ inputs.tags }}
+          labels: ${{ inputs.labels }}
+          flavor: ${{ inputs.flavor }}
+      - name: Assemble and verify OCI index
+        id: index
+        env:
+          IMAGE: ${{ inputs.image }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST_DIR: ${{ runner.temp }}/native-digests
+        run: |
+          amd64=$(cat "$DIGEST_DIR/amd64.digest")
+          arm64=$(cat "$DIGEST_DIR/arm64.digest")
+          [[ "$amd64" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$arm64" =~ ^sha256:[0-9a-f]{64}$ ]]
+          args=()
+          first_tag=''
+          while IFS= read -r tag; do
+            [ -z "$tag" ] && continue
+            args+=(--tag "$tag")
+            if [ -z "$first_tag" ]; then first_tag=$tag; fi
+          done <<< "$TAGS"
+          test -n "$first_tag"
+          docker buildx imagetools create "${args[@]}" "$IMAGE@$amd64" "$IMAGE@$arm64"
+          docker buildx imagetools inspect "$first_tag" --raw | jq -e '
+            [.manifests[] |
+              select(.annotations["vnd.docker.reference.type"] != "attestation-manifest") |
+              (.platform.os + "/" + .platform.architecture)] | sort == ["linux/amd64", "linux/arm64"]'
+          digest=$(docker buildx imagetools inspect "$first_tag" --format '{{json .Manifest}}' | jq -r .digest)
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
