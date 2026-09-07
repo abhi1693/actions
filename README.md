@@ -69,3 +69,17 @@ failure. Matrix callers must use distinct artifact names. Docker callers can
 set `flavor: latest=false` to disable automatic moving tags. All new inputs are
 optional; existing callers retain their defaults. Action references are pinned
 to commit SHAs and maintained by Dependabot.
+
+## Native multi-platform Docker images
+
+`docker-multi-platform.yml` calls `docker-build-push.yml` on native AMD64 and
+ARM64 runners, then combines their exact digests into a verified OCI index.
+It accepts `image`, `file`, `context`, `labels`, `cache-scope`, and the
+`github-token` secret. Outputs are `digest` and `tags` for the resulting index.
+Callers must grant `contents: read` and `packages: write` and gate the call on
+successful tests/security checks. This workflow always publishes candidates;
+callers own subsequent vulnerability scanning and release approval.
+
+Tags are `sha-<full-commit>-<run-id>-<run-attempt>`; native intermediates add
+`-amd64` or `-arm64`. Partial reruns compute their identity within the rerun job.
+No latest/version aliases are generated. Deploy digests only after verification.
