@@ -37,6 +37,9 @@ def environment(public, private):
                 or key.upper() in RESERVED
             ):
                 raise ValueError(f"Reserved or invalid environment name: {key}")
+            # Unset GitHub vars/secrets become JSON null through toJSON.
+            if value is None:
+                value = ""
             if not isinstance(value, (str, int, float, bool)) or "\x00" in str(value):
                 raise ValueError(f"Environment value must be a scalar: {key}")
             result[key] = str(value).lower() if isinstance(value, bool) else str(value)
@@ -48,6 +51,8 @@ def export_environment():
     values = environment(public, private)
     secrets = json.loads(private or "{}")
     for value in secrets.values():
+        if value is None or value == "":
+            continue
         # GitHub command escaping, including multiline values.
         masked = (
             str(value).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")

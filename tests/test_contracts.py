@@ -58,6 +58,14 @@ class ProjectContracts(unittest.TestCase):
         with self.assertRaises(ValueError):
             project.environment('{"APP": {}}', "{}")
 
+    def test_unset_github_values_export_as_empty_strings(self):
+        self.assertEqual(
+            project.environment(
+                '{"UNSET_VAR":null,"ENABLED":false}', '{"UNSET_SECRET":null}'
+            ),
+            {"UNSET_VAR": "", "ENABLED": "false", "UNSET_SECRET": ""},
+        )
+
     def test_fixed_stage_order_and_invalid_contract(self):
         self.assertEqual(
             project.node_stages('["build","lint"]', '{"lint":"lint:all"}'),
