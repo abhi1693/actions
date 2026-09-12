@@ -484,15 +484,15 @@ def promote(plan, directory, destination):
             docker_json("inspect", f"{item['image']}@{digest}", "--raw"),
             item["platforms"],
         )
-        if plan["mode"] == "release":
-            for tag in item["final-tags"]:
-                if not SEMVER.fullmatch(tag.removeprefix("v")):
-                    continue
-                previous = existing_digest(item["image"], tag)
-                if previous and previous != digest:
-                    raise ValueError(
-                        f"Refusing to overwrite immutable tag {item['image']}:{tag}"
-                    )
+        # Branch names and extra-tags can also target immutable release versions.
+        for tag in item["final-tags"]:
+            if not SEMVER.fullmatch(tag.removeprefix("v")):
+                continue
+            previous = existing_digest(item["image"], tag)
+            if previous and previous != digest:
+                raise ValueError(
+                    f"Refusing to overwrite immutable tag {item['image']}:{tag}"
+                )
     published = {}
     for item in plan["images"]:
         digest = records[item["image"]]["digest"]

@@ -308,17 +308,48 @@ class ImagePromotion(unittest.TestCase):
             images.records_for(self.plan, self.root)
 
     def test_all_images_preflight_before_first_tag_write(self):
+        for mode in ("release", "branch"):
+            for tag in ("1.0.0", "v1.0.0", "1.0.0-rc.1", "v1.0.0-rc.1"):
+                with self.subTest(mode=mode, tag=tag):
+                    self.plan["mode"] = mode
+                    for item in self.plan["images"]:
+                        item["final-tags"] = [tag, "latest"]
+                    with (
+                        patch.object(images, "docker_json", return_value=self.index),
+                        patch.object(
+                            images,
+                            "existing_digest",
+                            side_effect=[None, "sha256:" + "b" * 64],
+                        ),
+                        patch.object(images.subprocess, "run") as run,
+                    ):
+                        with self.assertRaisesRegex(ValueError, "immutable tag"):
+                            images.promote(
+                                self.plan, self.root, self.root / "manifest.json"
+                            )
+                        run.assert_not_called()
+                        self.assertFalse((self.root / "manifest.json").exists())
+
+    def test_branch_semver_retry_and_moving_aliases(self):
+        self.plan["mode"] = "branch"
+        tags = ["v1.0.0", "latest", "master", "1", "1.2"]
+        for item in self.plan["images"]:
+            item["final-tags"] = tags
         with (
             patch.object(images, "docker_json", return_value=self.index),
             patch.object(
-                images, "existing_digest", side_effect=[None, "sha256:" + "b" * 64]
-            ),
+                images, "existing_digest", return_value=self.digest
+            ) as inspect,
             patch.object(images.subprocess, "run") as run,
         ):
-            with self.assertRaises(ValueError):
-                images.promote(self.plan, self.root, self.root / "manifest.json")
-            run.assert_not_called()
-            self.assertFalse((self.root / "manifest.json").exists())
+            images.promote(self.plan, self.root, self.root / "manifest.json")
+            self.assertEqual(run.call_count, 2)
+            # Only full versions are checked before writes; all tags are verified after.
+            expected = [(item["image"], "v1.0.0") for item in self.plan["images"]]
+            expected += [
+                (item["image"], tag) for item in self.plan["images"] for tag in tags
+            ]
+            self.assertEqual([call.args for call in inspect.call_args_list], expected)
 
     def test_promoted_digest_must_equal_verified_digest(self):
         with (
