@@ -44,7 +44,7 @@ jobs:
       postgres-image: postgres:17-alpine
       postgres-database: fixture_test
   python:
-    uses: ./.github/workflows/python-uv-tests.yml
+    uses: ./.github/workflows/python-ci.yml
     with:
       working-directory: tests/fixtures/python
       python-version: '3.13'

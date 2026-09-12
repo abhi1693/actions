@@ -52,11 +52,6 @@ on:
         required: false
         type: boolean
         default: false
-      legacy-peer-deps:
-        description: Preserve projects requiring legacy peer dependency resolution.
-        required: false
-        type: boolean
-        default: false
       enable-cache:
         description: Enable npm download caching.
         required: false
@@ -241,12 +236,10 @@ jobs:
         run: |-
           args=()
           if [ "$IGNORE_SCRIPTS" = true ]; then args+=(--ignore-scripts); fi
-          if [ "$LEGACY_PEERS" = true ]; then args+=(--legacy-peer-deps); fi
           npm ci "${args[@]}"
         working-directory: ${{ inputs.install-directory || inputs.working-directory }}
         env:
           IGNORE_SCRIPTS: ${{ inputs.ignore-scripts }}
-          LEGACY_PEERS: ${{ inputs.legacy-peer-deps }}
       - name: Prepare browser tooling
         run: |-
           case "$BROWSER" in

@@ -1,4 +1,8 @@
 import json
+import os
+import platform
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -26,9 +30,9 @@ class WorkflowInterfaces(unittest.TestCase):
                 if step.get("id") == "build":
                     self.assertEqual(
                         step["with"]["tags"],
-                        "${{ steps.staged-tags.outputs.tags }}",
+                        "${{ steps.normalized-tags.outputs.tags }}",
                     )
-                if step.get("id") in ("runtime", "index"):
+                if step.get("id") == "runtime":
                     self.assertEqual(
                         step["env"]["TAGS"], "${{ steps.normalized-tags.outputs.tags }}"
                     )
@@ -50,38 +54,79 @@ class WorkflowInterfaces(unittest.TestCase):
             self.assertNotIn(name, suite["jobs"]["build"]["with"])
         steps = docker["jobs"]["build"]["steps"]
         names = [s.get("name") for s in steps]
-        publish = next(
-            s for s in steps if s.get("name") == "Publish verified image tags"
+        index = docker["jobs"]["index"]
+        self.assertEqual(index["needs"], "build")
+        self.assertEqual(index["if"], "inputs.push")
+        index_names = [s.get("name") for s in index["steps"]]
+        self.assertLess(
+            index_names.index("Assemble and verify OCI index"),
+            index_names.index("Publish verified image tags"),
         )
-        self.assertEqual(publish["if"], "inputs.push && inputs.matrix == ''")
         for gate in (
             "Scan runtime image",
             "Smoke-test runtime image",
             "Upload runtime reports",
         ):
-            self.assertLess(names.index(gate), names.index(publish["name"]))
+            self.assertLess(
+                names.index(gate), names.index("Record platform image digest")
+            )
         sbom = next(s for s in steps if s.get("name") == "Generate runtime SBOM")
         self.assertEqual(sbom["if"], "inputs.sbom")
         reports = next(s for s in steps if s.get("name") == "Upload runtime reports")
         self.assertEqual(reports["with"]["if-no-files-found"], "error")
         self.assertIn("inputs.sbom", reports["if"])
 
-    def test_existing_inputs_defaults_outputs_and_secrets_remain_compatible(self):
-        legacy = json.loads(
-            (ROOT / "tests/contracts/legacy-workflows.json").read_text()
+    def test_one_supported_native_build_contract(self):
+        docker = workflow("docker-build-push.yml")
+        inputs = docker[True]["workflow_call"]["inputs"]
+        self.assertIs(inputs["matrix"]["required"], True)
+        self.assertIs(inputs["push"]["default"], False)
+        for name in ("runs-on", "platforms", "qemu"):
+            self.assertNotIn(name, inputs)
+        self.assertEqual(
+            docker["jobs"]["build"]["strategy"]["matrix"]["include"],
+            "${{ fromJSON(inputs.matrix) }}",
         )
-        for name, previous in legacy.items():
-            current = workflow(name)[True]["workflow_call"]
-            for key, old in previous["inputs"].items():
-                for field in ("type", "default", "required"):
-                    self.assertEqual(
-                        current["inputs"][key].get(field),
-                        old.get(field),
-                        (name, key, field),
+        python = workflow("python-ci.yml")[True]["workflow_call"]["inputs"]
+        self.assertEqual(python["sync-command"]["default"], "uv sync --locked")
+        self.assertEqual(python["timeout-minutes"]["default"], 20)
+        self.assertFalse((ROOT / ".github/workflows/python-uv-tests.yml").exists())
+
+    def test_native_matrix_validation_rejects_invalid_builds(self):
+        step = next(
+            s
+            for s in workflow("docker-build-push.yml")["jobs"]["build"]["steps"]
+            if s.get("id") == "platform"
+        )
+        native = "linux/arm64" if platform.machine() == "aarch64" else "linux/amd64"
+        other = "linux/amd64" if native == "linux/arm64" else "linux/arm64"
+        valid = [{"runner": "native", "platform": native}]
+        cases = [
+            (valid, native, True),
+            (valid, other, False),
+            (valid * 2, native, False),
+            (
+                [{"runner": "native", "platform": "linux/amd64,linux/arm64"}],
+                native,
+                False,
+            ),
+            ([], native, False),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            for matrix, selected, success in cases:
+                with self.subTest(matrix=matrix, selected=selected):
+                    result = subprocess.run(
+                        ["bash", "-eo", "pipefail", "-c", step["run"]],
+                        env=dict(
+                            os.environ,
+                            BUILD_MATRIX=json.dumps(matrix),
+                            PLATFORM=selected,
+                            GITHUB_OUTPUT=str(Path(tmp) / "output"),
+                        ),
+                        capture_output=True,
+                        text=True,
                     )
-            for key, old in previous.get("secrets", {}).items():
-                self.assertEqual(current["secrets"][key]["required"], old["required"])
-            self.assertEqual(current.get("outputs", {}), previous.get("outputs", {}))
+                    self.assertEqual(result.returncode == 0, success, result.stderr)
 
     def test_internal_references_exist_and_external_actions_are_pinned(self):
         for path in (ROOT / ".github").rglob("*.yml"):
@@ -145,7 +190,7 @@ class WorkflowInterfaces(unittest.TestCase):
         self.assertEqual(pipeline["required"]["if"], "${{ always() }}")
 
     def test_configured_reports_fail_when_missing(self):
-        for name in ("node-ci.yml", "python-uv-tests.yml"):
+        for name in ("node-ci.yml", "python-ci.yml"):
             for job in workflow(name)["jobs"].values():
                 reports = [
                     s

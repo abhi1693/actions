@@ -2,7 +2,6 @@
 
 import argparse
 import fnmatch
-import hashlib
 import json
 import os
 import re
@@ -402,18 +401,6 @@ def write_tags(tags):
         stream.write(f"tags<<{delimiter}\n" + "\n".join(tags) + f"\n{delimiter}\n")
 
 
-def stage_tags():
-    tags = docker_tags(os.environ["IMAGE_TAGS"])
-    if os.environ["PUSH"] == "true" and not os.environ["BUILD_MATRIX"]:
-        scope = hashlib.sha256(os.environ["CACHE_SCOPE"].encode()).hexdigest()[:12]
-        tag = (
-            f"candidate-{os.environ['GITHUB_SHA']}-{os.environ['GITHUB_RUN_ID']}-"
-            f"{os.environ['GITHUB_RUN_ATTEMPT']}-{scope}"
-        )
-        tags = docker_tags(f"{os.environ['IMAGE_NAME']}:{tag}")
-    write_tags(tags)
-
-
 def normalized_platform(platform):
     return (
         platform.removesuffix("/v8")
@@ -534,7 +521,7 @@ def publish_digest(image, digest, tags):
             raise ValueError("Promotion changed the verified digest")
 
 
-def promote_single():
+def promote_image():
     image, digest = os.environ["IMAGE_NAME"], os.environ["IMAGE_DIGEST"]
     if not DIGEST.fullmatch(digest):
         raise ValueError("Invalid image digest")
@@ -590,8 +577,7 @@ if __name__ == "__main__":
             "record",
             "promote",
             "normalize-tags",
-            "stage-tags",
-            "promote-single",
+            "promote-image",
         ],
     )
     args = parser.parse_args()
@@ -599,10 +585,8 @@ if __name__ == "__main__":
         plan()
     elif args.operation == "normalize-tags":
         export_docker_tags()
-    elif args.operation == "stage-tags":
-        stage_tags()
-    elif args.operation == "promote-single":
-        promote_single()
+    elif args.operation == "promote-image":
+        promote_image()
     elif args.operation == "record":
         record()
     else:

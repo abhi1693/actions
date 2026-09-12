@@ -1,4 +1,4 @@
-name: Python UV Tests
+name: Python CI
 on:
   workflow_call:
     inputs:
@@ -6,7 +6,7 @@ on:
         description: Runner label for the test job.
         required: false
         type: string
-        default: ubuntu-latest
+        default: ubuntu-24.04
       python-version:
         description: Python version passed to actions/setup-python.
         required: false
@@ -36,7 +36,7 @@ on:
         description: Dependency sync command.
         required: false
         type: string
-        default: uv sync --extra dev
+        default: uv sync --locked
       lint-command:
         description: Optional lint command. Leave empty to skip.
         required: false
@@ -48,10 +48,10 @@ on:
         type: string
         default: uv run pytest
       timeout-minutes:
-        description: Maximum job duration; preserves the previous GitHub default.
+        description: Maximum job duration.
         required: false
         type: number
-        default: 360
+        default: 20
       enable-cache:
         description: Enable uv caching.
         required: false

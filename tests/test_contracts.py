@@ -241,38 +241,7 @@ class ImagePlanning(unittest.TestCase):
 
 
 class ImagePromotion(unittest.TestCase):
-    def test_single_runner_builds_stage_candidates_before_final_tags(self):
-        base = {
-            "IMAGE_TAGS": "ghcr.io/owner/app:v1.2.3",
-            "IMAGE_NAME": "ghcr.io/owner/app",
-            "GITHUB_SHA": "a" * 40,
-            "GITHUB_RUN_ID": "42",
-            "GITHUB_RUN_ATTEMPT": "1",
-            "CACHE_SCOPE": "app",
-        }
-        for push, matrix in (("true", ""), ("false", ""), ("true", "[]")):
-            with (
-                self.subTest(push=push, matrix=matrix),
-                patch.dict(
-                    os.environ,
-                    {
-                        **base,
-                        "PUSH": push,
-                        "BUILD_MATRIX": matrix,
-                    },
-                ),
-                patch.object(images, "write_tags") as write,
-            ):
-                images.stage_tags()
-                tags = write.call_args.args[0]
-                if push == "true" and not matrix:
-                    self.assertEqual(len(tags), 1)
-                    self.assertTrue(tags[0].startswith("ghcr.io/owner/app:candidate-"))
-                    self.assertNotIn("ghcr.io/owner/app:1.2.3", tags)
-                else:
-                    self.assertEqual(tags, ["ghcr.io/owner/app:1.2.3"])
-
-    def test_single_runner_promotion_refuses_release_collision(self):
+    def test_verified_image_promotion_refuses_release_collision(self):
         with (
             patch.dict(
                 os.environ,
@@ -286,7 +255,7 @@ class ImagePromotion(unittest.TestCase):
             patch.object(images.subprocess, "run") as run,
         ):
             with self.assertRaisesRegex(ValueError, "immutable tag"):
-                images.promote_single()
+                images.promote_image()
             run.assert_not_called()
 
     def test_docker_metadata_tags_drop_only_full_version_prefixes(self):

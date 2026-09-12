@@ -2,21 +2,15 @@ name: Docker Build Push
 on:
   workflow_call:
     inputs:
-      runs-on:
-        description: Runner label for the build job.
-        required: false
-        type: string
-        default: ubuntu-24.04-arm
       image-title:
         description: Human-readable service name in the Actions job graph.
         required: false
         type: string
         default: ''
       matrix:
-        description: JSON array of runner/platform pairs. Empty uses runs-on/platforms (ARM64 by default).
-        required: false
+        description: JSON array of native runner/platform pairs, one platform per job.
+        required: true
         type: string
-        default: ''
       image:
         description: Fully qualified image name passed to docker/metadata-action.
         required: true
@@ -40,16 +34,6 @@ on:
         description: Dockerfile path.
         required: true
         type: string
-      platforms:
-        description: Target platforms for docker/build-push-action.
-        required: false
-        type: string
-        default: linux/arm64
-      qemu:
-        description: Whether to set up QEMU before Buildx for cross-platform builds.
-        required: false
-        type: boolean
-        default: false
       build-args:
         description: Multiline Docker build args.
         required: false
@@ -104,10 +88,10 @@ on:
         type: string
         default: '7'
       push:
-        description: Whether to push the built image.
+        description: Publish verified images; leave false for pull requests.
         required: false
         type: boolean
-        default: true
+        default: false
       provenance:
         description: BuildKit provenance mode for published images; defaults to maximum detail.
         required: false
@@ -155,21 +139,21 @@ on:
         default: env
     secrets:
       github-token:
-        description: Token used to authenticate to GHCR.
-        required: true
+        description: Optional GHCR token override.
+        required: false
       build-env:
         description: Optional build environment file content, written only in the build job.
         required: false
     outputs:
       tags:
         description: Generated image tags.
-        value: ${{ inputs.matrix == '' && jobs.build.outputs.tags || jobs.index.outputs.tags }}
+        value: ${{ jobs.index.outputs.tags }}
       labels:
         description: Generated image labels.
-        value: ${{ inputs.matrix == '' && jobs.build.outputs.labels || jobs.index.outputs.labels }}
+        value: ${{ jobs.index.outputs.labels }}
       digest:
         description: Pushed image digest.
-        value: ${{ inputs.matrix == '' && jobs.build.outputs.digest || jobs.index.outputs.digest }}
+        value: ${{ jobs.index.outputs.digest }}
 permissions:
   contents: read
   packages: write
@@ -184,9 +168,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: |-
-          ${{ fromJSON(inputs.matrix ||
-              format('[{{"runner":{0},"platform":{1}}}]', toJSON(inputs.runs-on), toJSON(inputs.platforms))) }}
+        include: ${{ fromJSON(inputs.matrix) }}
     outputs:
       tags: ${{ steps.normalized-tags.outputs.tags }}
       labels: ${{ steps.meta.outputs.labels }}
@@ -202,24 +184,16 @@ jobs:
         env:
           PLATFORM: ${{ matrix.platform }}
           BUILD_MATRIX: ${{ inputs.matrix }}
-          SCAN: ${{ inputs.scan }}
-          SMOKE_SCRIPT: ${{ inputs.smoke-script }}
-          SBOM: ${{ inputs.sbom }}
         run: |
-          # Legacy single-runner mode can contain a comma-separated platform list.
-          key=$(printf '%s' "$PLATFORM" | tr '/,' '--')
+          echo "$BUILD_MATRIX" | jq -e '
+            type == "array" and length > 0 and
+            all(.[]; (.runner | type == "string" and length > 0) and
+              (.platform == "linux/amd64" or .platform == "linux/arm64")) and
+            ([.[].platform] | length == (unique | length))'
+          case "$(uname -m)" in x86_64) native=linux/amd64 ;; aarch64) native=linux/arm64 ;; *) exit 1 ;; esac
+          if [ "$PLATFORM" != "$native" ]; then echo 'Builds require a matching native runner' >&2; exit 1; fi
+          key=$(printf '%s' "$PLATFORM" | tr '/' '-')
           echo "key=$key" >> "$GITHUB_OUTPUT"
-          if [ -n "$BUILD_MATRIX" ]; then
-            echo "$BUILD_MATRIX" | jq -e '
-              type == "array" and length > 0 and
-              all(.[]; (.runner | type == "string") and (.platform | test("^[a-z0-9]+/[a-z0-9_]+(/[a-z0-9_]+)?$"))) and
-              ([.[].platform | sub("/arm64/v8$"; "/arm64") | sub("/amd64/v1$"; "/amd64")] | length == (unique | length))'
-          fi
-
-          if { [ "$SCAN" = true ] || [ "$SBOM" = true ] || [ -n "$SMOKE_SCRIPT" ]; } && [[ "$PLATFORM" == *,* ]]; then
-            echo 'Runtime verification requires one platform per job; use the native matrix input.' >&2
-            exit 1
-          fi
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -230,9 +204,6 @@ jobs:
         with:
           name: ${{ inputs.source-artifact }}
           path: ${{ inputs.source-artifact-path }}
-      - name: Set up QEMU
-        if: inputs.qemu
-        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
       - name: Login to GHCR
@@ -241,16 +212,14 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.github-token }}
+          password: ${{ secrets.github-token || github.token }}
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ inputs.image }}
-          flavor: ${{ inputs.matrix != '' && 'latest=false' || inputs.flavor }}
-          tags: |-
-            ${{ inputs.matrix != '' &&
-                format('type=raw,value=candidate-{0}-{1}-{2}-{3}', github.sha, github.run_id, github.run_attempt, steps.platform.outputs.key) || inputs.tags }}
+          flavor: latest=false
+          tags: type=raw,value=candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.cache-scope }}-${{ steps.platform.outputs.key }}
           labels: ${{ inputs.labels }}
       - name: Normalize release image tags
         id: normalized-tags
@@ -258,16 +227,6 @@ jobs:
           TOOLS: ${{ steps.tools.outputs.path }}
           IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
         run: python3 "$TOOLS/images.py" normalize-tags
-      - name: Stage candidate image tags
-        id: staged-tags
-        env:
-          TOOLS: ${{ steps.tools.outputs.path }}
-          IMAGE_TAGS: ${{ steps.normalized-tags.outputs.tags }}
-          IMAGE_NAME: ${{ inputs.image }}
-          PUSH: ${{ inputs.push }}
-          BUILD_MATRIX: ${{ inputs.matrix }}
-          CACHE_SCOPE: ${{ inputs.cache-scope }}
-        run: python3 "$TOOLS/images.py" stage-tags
       - name: Download build secret artifact
         if: inputs.build-secret-artifact != ''
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -304,7 +263,7 @@ jobs:
       - name: Resolve cache settings
         id: cache
         env:
-          CACHE_SCOPE: ${{ inputs.matrix != '' && format('{0}-{1}', inputs.cache-scope, steps.platform.outputs.key) || inputs.cache-scope }}
+          CACHE_SCOPE: ${{ format('{0}-{1}', inputs.cache-scope, steps.platform.outputs.key) }}
           IMAGE: ${{ inputs.image }}
           PUSH: ${{ inputs.push }}
         run: |
@@ -333,7 +292,7 @@ jobs:
           push: ${{ inputs.push }}
           build-args: ${{ inputs.build-args }}
           secret-files: ${{ steps.secret-files.outputs.value }}
-          tags: ${{ steps.staged-tags.outputs.tags }}
+          tags: ${{ steps.normalized-tags.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: ${{ steps.cache.outputs.from }}
           cache-to: ${{ steps.cache.outputs.to }}
@@ -406,19 +365,11 @@ jobs:
           if-no-files-found: error
           overwrite: true
           retention-days: 14
-      - name: Publish verified image tags
-        if: inputs.push && inputs.matrix == ''
-        env:
-          TOOLS: ${{ steps.tools.outputs.path }}
-          IMAGE_TAGS: ${{ steps.normalized-tags.outputs.tags }}
-          IMAGE_NAME: ${{ inputs.image }}
-          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
-        run: python3 "$TOOLS/images.py" promote-single
       - name: Remove build secret files
         if: always()
         run: rm -rf "$RUNNER_TEMP/docker-build-secrets"
       - name: Record platform image digest
-        if: inputs.matrix != '' && inputs.push
+        if: inputs.push
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
           ARCH: ${{ steps.platform.outputs.key }}
@@ -426,7 +377,7 @@ jobs:
           [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
           echo "$DIGEST" > "$RUNNER_TEMP/$ARCH.digest"
       - name: Upload platform digest for index assembly
-        if: inputs.matrix != '' && inputs.push
+        if: inputs.push
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: platform-digest-${{ inputs.cache-scope }}--${{ steps.platform.outputs.key }}
@@ -434,28 +385,10 @@ jobs:
           overwrite: true
           if-no-files-found: error
           retention-days: 7
-      - name: Record component image result
-        if: inputs.push && inputs.matrix == '' && inputs.digest-artifact-name != ''
-        env:
-          TOOLS: ${{ steps.tools.outputs.path }}
-          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
-          IMAGE_NAME: ${{ inputs.image }}
-          BUILD_MATRIX: ${{ inputs.matrix || format('[{{"platform":{0}}}]', toJSON(inputs.platforms)) }}
-          RECORD_PATH: ${{ runner.temp }}/image-result.json
-        run: python3 "$TOOLS/images.py" record
-      - name: Upload component image result
-        if: inputs.push && inputs.matrix == '' && inputs.digest-artifact-name != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ${{ inputs.digest-artifact-name }}
-          path: ${{ runner.temp }}/image-result.json
-          if-no-files-found: error
-          overwrite: true
-          retention-days: 7
     environment: ${{ inputs.environment }}
   index:
     name: ${{ inputs.image-title || inputs.image }} — assemble index
-    if: inputs.matrix != '' && inputs.push
+    if: inputs.push
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -482,7 +415,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.github-token }}
+          password: ${{ secrets.github-token || github.token }}
       - name: Index metadata
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
@@ -501,7 +434,7 @@ jobs:
         id: index
         env:
           IMAGE: ${{ inputs.image }}
-          TAGS: ${{ steps.normalized-tags.outputs.tags }}
+          CANDIDATE: ${{ inputs.image }}:candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.cache-scope }}-index
           DIGEST_DIR: ${{ runner.temp }}/platform-digests
           BUILD_MATRIX: ${{ inputs.matrix }}
         run: |
@@ -512,32 +445,31 @@ jobs:
             [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
             sources+=("$IMAGE@$digest")
           done < <(echo "$BUILD_MATRIX" | jq -r '.[].platform')
-          args=()
-          first_tag=''
-          while IFS= read -r tag; do
-            [ -z "$tag" ] && continue
-            args+=(--tag "$tag")
-            if [ -z "$first_tag" ]; then first_tag=$tag; fi
-          done <<< "$TAGS"
-          test -n "$first_tag"
-          docker buildx imagetools create "${args[@]}" "${sources[@]}"
+          docker buildx imagetools create --tag "$CANDIDATE" "${sources[@]}"
           expected=$(echo "$BUILD_MATRIX" | jq '[.[].platform | sub("/arm64/v8$"; "/arm64") | sub("/amd64/v1$"; "/amd64")] | sort')
-          docker buildx imagetools inspect "$first_tag" --raw | jq -e --argjson expected "$expected" '
+          docker buildx imagetools inspect "$CANDIDATE" --raw | jq -e --argjson expected "$expected" '
             [.manifests[] |
               select(.annotations["vnd.docker.reference.type"] != "attestation-manifest") |
               ([.platform.os, .platform.architecture, .platform.variant // empty] | join("/")) |
               sub("/arm64/v8$"; "/arm64") | sub("/amd64/v1$"; "/amd64")] |
               sort == $expected'
-          digest=$(docker buildx imagetools inspect "$first_tag" --format '{{json .Manifest}}' | jq -r .digest)
+          digest=$(docker buildx imagetools inspect "$CANDIDATE" --format '{{json .Manifest}}' | jq -r .digest)
           [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - name: Publish verified image tags
+        env:
+          TOOLS: ${{ steps.tools.outputs.path }}
+          IMAGE_TAGS: ${{ steps.normalized-tags.outputs.tags }}
+          IMAGE_NAME: ${{ inputs.image }}
+          IMAGE_DIGEST: ${{ steps.index.outputs.digest }}
+        run: python3 "$TOOLS/images.py" promote-image
       - name: Record component image result
         if: inputs.digest-artifact-name != ''
         env:
           TOOLS: ${{ steps.tools.outputs.path }}
           IMAGE_DIGEST: ${{ steps.index.outputs.digest }}
           IMAGE_NAME: ${{ inputs.image }}
-          BUILD_MATRIX: ${{ inputs.matrix || format('[{{"platform":{0}}}]', toJSON(inputs.platforms)) }}
+          BUILD_MATRIX: ${{ inputs.matrix }}
           RECORD_PATH: ${{ runner.temp }}/image-result.json
         run: python3 "$TOOLS/images.py" record
       - name: Upload component image result

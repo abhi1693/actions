@@ -11,7 +11,7 @@ Local checks:
 uv run --with PyYAML==6.0.3 python -m unittest discover -s tests -v
 uvx ruff==0.16.7 check --isolated --select E4,E7,E9,F,I .github/actions/workflow-tools tests
 uvx ruff==0.16.7 format --isolated --check .github/actions/workflow-tools tests
-python3 tests/run_smoke.py
+uv run --with PyYAML==6.0.3 python tests/run_smoke.py
 ```
 
 The local smoke script uses npm, uv, Go and Docker. It starts a temporary
@@ -26,6 +26,15 @@ Actionlint 1.7.12 predates that syntax: validation ignores only its missing-ref
 error for the exact `$/ .github/actions/workflow-tools` path (without the space).
 Contract tests separately verify that the helper exists and external actions are
 SHA-pinned. Remove this narrow exception when actionlint supports self references.
+
+## One supported implementation
+
+Maintain the current workflow contracts only. Do not add compatibility wrappers,
+duplicate workflow generations, legacy switches, or backport branches. Remove
+superseded interfaces with their caller migration and test the supported behavior.
+Historical release tags remain immutable references, not maintained code branches.
+Breaking changes require a new major version once stable releases exist; migrate
+first-party callers together and retire their old calls.
 
 Before advancing a shared major version, run the central fixtures and representative
 consumer PR checks. Review changes to job names and required checks during each

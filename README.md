@@ -20,7 +20,7 @@ Node.js, Python, security checks and container delivery—maintained together,<b
 
 A repository should describe what its application needs. The shared workflow should handle how those checks and builds run.
 
-Keep events, application commands and image definitions close to the code. Maintain dependency setup, tool versions, security defaults and publication mechanics here. As projects grow, a shared release carries compatible improvements across their callers.
+Keep events, application commands and image definitions close to the code. Maintain dependency setup, tool versions, security defaults and publication mechanics here. Every workflow has one supported implementation. Callers move forward together; superseded workflows and compatibility shims are removed.
 
 | Principle | What it means in practice |
 | :--- | :--- |
@@ -37,7 +37,7 @@ Five reusable workflows cover the common delivery path. Compose them with the pr
 | Workflow | Designed for |
 | :--- | :--- |
 | [**Node CI**](.github/workflows/node-ci.yml) | Locked npm installs; generation, lint, typecheck, test and build stages; optional database and browser tooling. |
-| [**Python CI**](.github/workflows/python-uv-tests.yml) | uv dependency setup, linting, tests and project validation, with optional PostgreSQL and test reports. |
+| [**Python CI**](.github/workflows/python-ci.yml) | uv dependency setup, linting, tests and project validation, with optional PostgreSQL and test reports. |
 | [**Security**](.github/workflows/security.yml) | Secret scanning, dependency audits, workflow validation and optional CodeQL analysis. |
 | [**Container Images**](.github/workflows/container-images.yml) | Component selection, native builds, runtime verification, GitHub attestations and digest-preserving promotion. |
 | [**Docker Build & Push**](.github/workflows/docker-build-push.yml) | The shared container builder, also available directly for custom metadata, build secrets and specialized callers. |
@@ -89,7 +89,7 @@ PR image checks run without publication. Local image checks retain their reports
 
 The shared library has its own contract tests and runtime fixtures for Node.js, Python, security checks and containers. Validation covers workflow interfaces, report handling, image selection and promotion; local Docker checks exercise real runtime behavior and digest-preserving retries.
 
-Workflow versions use Git refs. Compatible improvements advance a shared major ref through a validated release process, keeping one implementation for each workflow.
+Workflow versions use Git refs. Releases advance the current supported implementation through a validated release process. Breaking changes include a caller migration; older versions remain available in Git history without maintained legacy branches.
 
 | Continue with | What you will find |
 | :--- | :--- |

@@ -31,8 +31,8 @@ aliases such as `latest` remain available. Git release tag names are unchanged.
 Container builds enable SBOM generation, maximum-detail BuildKit provenance, and
 HIGH/CRITICAL vulnerability plus secret scanning by default. Vulnerabilities without
 fixes still count. The container suite also enables GitHub build attestations.
-Final tags are applied only after verification; direct single-runner builds stage a
-candidate tag first, and native matrix indexes wait for every platform check.
+Every image uses the same native runner matrix, including single-platform images.
+Final tags follow platform checks and verification of the assembled candidate index.
 
 SBOM generation is independent of vulnerability scanning. No-push checks retain
 CycloneDX/scan reports as artifacts; published images also carry BuildKit SBOM and
@@ -42,6 +42,10 @@ Maximum-detail provenance includes build arguments: pass credentials using Build
 secret inputs (`build-env` or `secret-files`). Explicit opt-outs remain available
 for callers that require them; security checks are never silently downgraded.
 
+Repository-specific npm resolution settings belong in the project `.npmrc`, as
+recommended by [npm ci](https://docs.npmjs.com/cli/v11/commands/npm-ci/). The shared
+workflow runs locked installs without separate dependency-compatibility modes.
+
 ## Image manifests
 
 `container-images.yml` reads a JSON file with `schema-version: 1`, `images`, and optional
@@ -50,8 +54,8 @@ for callers that require them; security checks are never silently downgraded.
 `change-dependencies`, `build-args`, `labels`, `smoke-script`, `extra-tags`, `secret-id`.
 Unknown fields fail validation. `image` defaults to `ghcr.io/<repository>` for one
 image or `ghcr.io/<repository>/<id>` for several. Platforms are native Linux AMD64
-and/or ARM64; default ARM64. Other platform/custom tag policies can keep using the
-existing Docker workflow directly.
+and/or ARM64; default ARM64. Specialized metadata policies use the same native
+builder directly, with an explicit runner/platform matrix.
 
 Paths use Python fnmatch globs (`*` matches across slashes), conservatively selecting
 components. Dockerfile and Docker ignore files always invalidate the relevant image;
@@ -97,7 +101,6 @@ first release, use the concrete reviewed shared-workflow SHA for staged migratio
 | `scripts` | `{}` | JSON map of standard stages to npm scripts; default ci:<stage>. |
 | `generated-paths` | `[]` | JSON paths checked for tracked and untracked changes after generation. |
 | `ignore-scripts` | `false` | Disable npm install lifecycle scripts. |
-| `legacy-peer-deps` | `false` | Preserve projects requiring legacy peer dependency resolution. |
 | `enable-cache` | `true` | Enable npm download caching. |
 | `project-env` | `{}` | JSON object of non-secret application environment variables. |
 | `postgres-image` | `` | Optional PostgreSQL service image. Exports CI_DATABASE_URL. |
@@ -116,20 +119,20 @@ first release, use the concrete reviewed shared-workflow SHA for staged migratio
 | `postgres-database` | `ci` | Disposable PostgreSQL database name, including an application-required test suffix. |
 
 
-## `python-uv-tests.yml`
+## `python-ci.yml`
 
 | Input | Default | Meaning |
 | --- | --- | --- |
-| `runs-on` | `ubuntu-latest` | Runner label for the test job. |
+| `runs-on` | `ubuntu-24.04` | Runner label for the test job. |
 | `python-version` | `3.13` | Python version passed to actions/setup-python. |
 | `uv-version` | `` | Optional uv version; an empty value uses setup-uv's default. |
 | `test-results-path` | `` | Optional path to test reports to upload, relative to the workspace. |
 | `test-results-name` | `python-test-results` | Unique artifact name when test-results-path is set. |
 | `working-directory` | `.` | Directory containing the Python project. |
-| `sync-command` | `uv sync --extra dev` | Dependency sync command. |
+| `sync-command` | `uv sync --locked` | Locked dependency sync; select project extras explicitly. |
 | `lint-command` | `` | Optional lint command. Leave empty to skip. |
 | `test-command` | `uv run pytest` | Test command. |
-| `timeout-minutes` | `360` | Maximum job duration; preserves the previous GitHub default. |
+| `timeout-minutes` | `20` | Maximum job duration. |
 | `enable-cache` | `true` | Enable uv caching. |
 | `project-env` | `{}` | JSON non-secret application environment. |
 | `postgres-image` | `` | Optional PostgreSQL service image; exports CI_DATABASE_URL. |
@@ -193,18 +196,22 @@ first release, use the concrete reviewed shared-workflow SHA for staged migratio
 
 ## `docker-build-push.yml`
 
+Use the same native matrix for every build, for example
+`matrix: '[{"runner":"ubuntu-24.04-arm","platform":"linux/arm64"}]'`.
+Add an AMD64 entry with `ubuntu-24.04` for a multi-platform image. The index job
+assembles checked platform digests, verifies the candidate index, and then promotes
+its exact digest to the requested tags. Outputs describe that published index;
+no-push checks produce reports and leave publication outputs empty.
+
 | Input | Default | Meaning |
 | --- | --- | --- |
-| `runs-on` | `ubuntu-24.04-arm` | Runner label for the build job. |
 | `image-title` | `` | Human-readable service name in the Actions job graph. |
-| `matrix` | `` | JSON array of runner/platform pairs. Empty uses runs-on/platforms (ARM64 by default). |
+| `matrix` | `required` | JSON array of native runner/platform pairs, one platform per job. |
 | `image` | `required` | Fully qualified image name passed to docker/metadata-action. |
 | `context` | `.` | Docker build context. |
 | `source-artifact` | `` | Artifact to download into the checked-out workspace before building. |
 | `source-artifact-path` | `.` | Path where the source artifact should be downloaded. |
 | `file` | `required` | Dockerfile path. |
-| `platforms` | `linux/arm64` | Target platforms for docker/build-push-action. |
-| `qemu` | `false` | Whether to set up QEMU before Buildx for cross-platform builds. |
 | `build-args` | `` | Multiline Docker build args. |
 | `target` | `` | Dockerfile target stage. |
 | `secret-files` | `` | Multiline Docker secret file mappings. |
@@ -216,7 +223,7 @@ first release, use the concrete reviewed shared-workflow SHA for staged migratio
 | `labels` | `` | Multiline docker/metadata-action labels. |
 | `cache-scope` | `required` | Shared cache scope suffix. |
 | `short-sha-length` | `7` | DOCKER_METADATA_SHORT_SHA_LENGTH value. |
-| `push` | `true` | Whether to push the built image. |
+| `push` | `false` | Opt in to publishing verified images. |
 | `provenance` | `mode=max` | BuildKit provenance mode for published images. |
 | `sbom` | `true` | Generate BuildKit SBOM attestations and a runtime CycloneDX report. |
 | `scan` | `true` | Block HIGH/CRITICAL vulnerabilities and detected secrets before final tags. |

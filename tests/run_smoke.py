@@ -13,6 +13,8 @@ import uuid
 from pathlib import Path
 from unittest.mock import patch
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ROOT / ".github/actions/workflow-tools"
 spec = importlib.util.spec_from_file_location("images", TOOLS / "images.py")
@@ -130,6 +132,30 @@ def main():
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)
             (directory / "result").mkdir()
+            # Execute the actual index assembly script, including its platform gate.
+            workflow = yaml.safe_load(
+                (ROOT / ".github/workflows/docker-build-push.yml").read_text()
+            )
+            index_step = next(
+                step
+                for step in workflow["jobs"]["index"]["steps"]
+                if step.get("id") == "index"
+            )
+            platform_digest = images.existing_digest(image, "platform")
+            (directory / "linux-amd64.digest").write_text(platform_digest)
+            output = directory / "outputs"
+            env = dict(
+                os.environ,
+                IMAGE=image,
+                CANDIDATE=image + ":verified-index",
+                DIGEST_DIR=str(directory),
+                BUILD_MATRIX='[{"platform":"linux/amd64"}]',
+                GITHUB_OUTPUT=str(output),
+            )
+            run("bash", "-eo", "pipefail", "-c", index_step["run"], env=env)
+            digest = output.read_text().strip().removeprefix("digest=")
+            assert images.existing_digest(image, "1.0.0") is None
+            assert images.existing_digest(image, "latest") is None
             plan = {
                 "schema-version": 1,
                 "repository": "fixture/local",
@@ -161,7 +187,7 @@ def main():
             assert result["images"]["fixture"] == f"{image}@{digest}"
             # A promotion-only retry must be idempotent against real registry manifests.
             images.promote(plan, directory / "result", directory / "manifest.json")
-            # The single-runner workflow must promote exactly the verified digest too.
+            # The shared index publisher must preserve the verified digest too.
             with patch.dict(
                 os.environ,
                 {
@@ -170,7 +196,7 @@ def main():
                     "IMAGE_TAGS": f"{image}:v1.0.0\n{image}:latest",
                 },
             ):
-                images.promote_single()
+                images.promote_image()
             assert images.existing_digest(image, "1.0.0") == digest
             assert images.existing_digest(image, "v1.0.0") is None
         print(
