@@ -169,8 +169,6 @@ jobs:
       scan: ${{ inputs.scan }}
       scan-ignore-unfixed: ${{ inputs.scan-ignore-unfixed }}
       smoke-script: ${{ matrix.smoke-script }}
-      provenance: mode=max
-      sbom: true
       digest-artifact-name: ${{ matrix.artifact }}
       environment: ${{ inputs.environment }}
       source-artifact: ${{ inputs.source-artifact }}

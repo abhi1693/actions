@@ -2,6 +2,7 @@
 
 import argparse
 import fnmatch
+import hashlib
 import json
 import os
 import re
@@ -392,9 +393,25 @@ def docker_tags(raw):
 
 def export_docker_tags():
     tags = docker_tags(os.environ["IMAGE_TAGS"])
+    write_tags(tags)
+
+
+def write_tags(tags):
     delimiter = uuid.uuid4().hex
     with open(os.environ["GITHUB_OUTPUT"], "a") as stream:
         stream.write(f"tags<<{delimiter}\n" + "\n".join(tags) + f"\n{delimiter}\n")
+
+
+def stage_tags():
+    tags = docker_tags(os.environ["IMAGE_TAGS"])
+    if os.environ["PUSH"] == "true" and not os.environ["BUILD_MATRIX"]:
+        scope = hashlib.sha256(os.environ["CACHE_SCOPE"].encode()).hexdigest()[:12]
+        tag = (
+            f"candidate-{os.environ['GITHUB_SHA']}-{os.environ['GITHUB_RUN_ID']}-"
+            f"{os.environ['GITHUB_RUN_ATTEMPT']}-{scope}"
+        )
+        tags = docker_tags(f"{os.environ['IMAGE_NAME']}:{tag}")
+    write_tags(tags)
 
 
 def normalized_platform(platform):
@@ -498,6 +515,37 @@ def existing_digest(image, tag):
     return None
 
 
+def check_immutable_tags(image, digest, tags):
+    for tag in tags:
+        if not SEMVER.fullmatch(tag.removeprefix("v")):
+            continue
+        previous = existing_digest(image, tag)
+        if previous and previous != digest:
+            raise ValueError(f"Refusing to overwrite immutable tag {image}:{tag}")
+
+
+def publish_digest(image, digest, tags):
+    args = ["docker", "buildx", "imagetools", "create", "--prefer-index=false"]
+    for tag in tags:
+        args.extend(["--tag", f"{image}:{tag}"])
+    subprocess.run([*args, f"{image}@{digest}"], check=True)
+    for tag in tags:
+        if existing_digest(image, tag) != digest:
+            raise ValueError("Promotion changed the verified digest")
+
+
+def promote_single():
+    image, digest = os.environ["IMAGE_NAME"], os.environ["IMAGE_DIGEST"]
+    if not DIGEST.fullmatch(digest):
+        raise ValueError("Invalid image digest")
+    references = docker_tags(os.environ["IMAGE_TAGS"])
+    if any(reference.rpartition(":")[0] != image for reference in references):
+        raise ValueError("Promotion tags must target the built image")
+    tags = [reference.rpartition(":")[2] for reference in references]
+    check_immutable_tags(image, digest, tags)
+    publish_digest(image, digest, tags)
+
+
 def promote(plan, directory, destination):
     records = records_for(plan, directory)
     # Validate every image and every immutable tag before making the first tag write.
@@ -508,24 +556,11 @@ def promote(plan, directory, destination):
             item["platforms"],
         )
         # Branch names and extra-tags can also target immutable release versions.
-        for tag in item["final-tags"]:
-            if not SEMVER.fullmatch(tag.removeprefix("v")):
-                continue
-            previous = existing_digest(item["image"], tag)
-            if previous and previous != digest:
-                raise ValueError(
-                    f"Refusing to overwrite immutable tag {item['image']}:{tag}"
-                )
+        check_immutable_tags(item["image"], digest, item["final-tags"])
     published = {}
     for item in plan["images"]:
         digest = records[item["image"]]["digest"]
-        args = ["docker", "buildx", "imagetools", "create"]
-        for tag in item["final-tags"]:
-            args.extend(["--tag", f"{item['image']}:{tag}"])
-        subprocess.run([*args, f"{item['image']}@{digest}"], check=True)
-        for tag in item["final-tags"]:
-            if existing_digest(item["image"], tag) != digest:
-                raise ValueError("Promotion changed the verified digest")
+        publish_digest(item["image"], digest, item["final-tags"])
         published[item["id"]] = f"{item['image']}@{digest}"
     result = {
         "schema_version": 1,
@@ -549,13 +584,25 @@ def promote(plan, directory, destination):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "operation", choices=["plan", "record", "promote", "normalize-tags"]
+        "operation",
+        choices=[
+            "plan",
+            "record",
+            "promote",
+            "normalize-tags",
+            "stage-tags",
+            "promote-single",
+        ],
     )
     args = parser.parse_args()
     if args.operation == "plan":
         plan()
     elif args.operation == "normalize-tags":
         export_docker_tags()
+    elif args.operation == "stage-tags":
+        stage_tags()
+    elif args.operation == "promote-single":
+        promote_single()
     elif args.operation == "record":
         record()
     else:

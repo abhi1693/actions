@@ -28,6 +28,20 @@ image tag `1.2.3`. This also applies to raw/manual Docker metadata tags and mani
 `extra-tags`. Prereleases retain their suffix (for example, `1.2.3-rc.1`); moving
 aliases such as `latest` remain available. Git release tag names are unchanged.
 
+Container builds enable SBOM generation, maximum-detail BuildKit provenance, and
+HIGH/CRITICAL vulnerability plus secret scanning by default. Vulnerabilities without
+fixes still count. The container suite also enables GitHub build attestations.
+Final tags are applied only after verification; direct single-runner builds stage a
+candidate tag first, and native matrix indexes wait for every platform check.
+
+SBOM generation is independent of vulnerability scanning. No-push checks retain
+CycloneDX/scan reports as artifacts; published images also carry BuildKit SBOM and
+provenance attestations. Docker's classic local image store cannot retain those
+registry attestations. See [Docker's attestation guidance](https://docs.docker.com/build/ci/github-actions/attestations/).
+Maximum-detail provenance includes build arguments: pass credentials using BuildKit
+secret inputs (`build-env` or `secret-files`). Explicit opt-outs remain available
+for callers that require them; security checks are never silently downgraded.
+
 ## Image manifests
 
 `container-images.yml` reads a JSON file with `schema-version: 1`, `images`, and optional
@@ -203,9 +217,9 @@ first release, use the concrete reviewed shared-workflow SHA for staged migratio
 | `cache-scope` | `required` | Shared cache scope suffix. |
 | `short-sha-length` | `7` | DOCKER_METADATA_SHORT_SHA_LENGTH value. |
 | `push` | `true` | Whether to push the built image. |
-| `provenance` | `` | BuildKit provenance mode; empty preserves build action defaults. |
-| `sbom` | `false` | Generate BuildKit SBOM attestations. |
-| `scan` | `false` | Generate a runtime SBOM and block HIGH/CRITICAL vulnerabilities. |
+| `provenance` | `mode=max` | BuildKit provenance mode for published images. |
+| `sbom` | `true` | Generate BuildKit SBOM attestations and a runtime CycloneDX report. |
+| `scan` | `true` | Block HIGH/CRITICAL vulnerabilities and detected secrets before final tags. |
 | `scan-ignore-unfixed` | `false` | Ignore vulnerabilities without fixes. |
 | `smoke-script` | `` | Repository Bash script receiving image reference, platform and app version. |
 | `app-version` | `` | Version passed to runtime smoke checks. |

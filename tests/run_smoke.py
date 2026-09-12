@@ -11,6 +11,7 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ROOT / ".github/actions/workflow-tools"
@@ -160,6 +161,18 @@ def main():
             assert result["images"]["fixture"] == f"{image}@{digest}"
             # A promotion-only retry must be idempotent against real registry manifests.
             images.promote(plan, directory / "result", directory / "manifest.json")
+            # The single-runner workflow must promote exactly the verified digest too.
+            with patch.dict(
+                os.environ,
+                {
+                    "IMAGE_NAME": image,
+                    "IMAGE_DIGEST": digest,
+                    "IMAGE_TAGS": f"{image}:v1.0.0\n{image}:latest",
+                },
+            ):
+                images.promote_single()
+            assert images.existing_digest(image, "1.0.0") == digest
+            assert images.existing_digest(image, "v1.0.0") is None
         print(
             "PASS: real Node/Python fixtures, loaded-image smoke, exact digest promotion and retry"
         )

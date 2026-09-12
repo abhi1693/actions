@@ -26,7 +26,7 @@ class WorkflowInterfaces(unittest.TestCase):
                 if step.get("id") == "build":
                     self.assertEqual(
                         step["with"]["tags"],
-                        "${{ steps.normalized-tags.outputs.tags }}",
+                        "${{ steps.staged-tags.outputs.tags }}",
                     )
                 if step.get("id") in ("runtime", "index"):
                     self.assertEqual(
@@ -36,6 +36,35 @@ class WorkflowInterfaces(unittest.TestCase):
             "release-tag-prefix",
             workflow("container-images.yml")[True]["workflow_call"]["inputs"],
         )
+
+    def test_container_security_defaults_and_final_tag_gate(self):
+        docker = workflow("docker-build-push.yml")
+        inputs = docker[True]["workflow_call"]["inputs"]
+        for name in ("scan", "sbom"):
+            self.assertIs(inputs[name]["default"], True)
+        self.assertEqual(inputs["provenance"]["default"], "mode=max")
+        self.assertIs(inputs["scan-ignore-unfixed"]["default"], False)
+        suite = workflow("container-images.yml")
+        self.assertIs(suite[True]["workflow_call"]["inputs"]["attest"]["default"], True)
+        for name in ("sbom", "provenance"):
+            self.assertNotIn(name, suite["jobs"]["build"]["with"])
+        steps = docker["jobs"]["build"]["steps"]
+        names = [s.get("name") for s in steps]
+        publish = next(
+            s for s in steps if s.get("name") == "Publish verified image tags"
+        )
+        self.assertEqual(publish["if"], "inputs.push && inputs.matrix == ''")
+        for gate in (
+            "Scan runtime image",
+            "Smoke-test runtime image",
+            "Upload runtime reports",
+        ):
+            self.assertLess(names.index(gate), names.index(publish["name"]))
+        sbom = next(s for s in steps if s.get("name") == "Generate runtime SBOM")
+        self.assertEqual(sbom["if"], "inputs.sbom")
+        reports = next(s for s in steps if s.get("name") == "Upload runtime reports")
+        self.assertEqual(reports["with"]["if-no-files-found"], "error")
+        self.assertIn("inputs.sbom", reports["if"])
 
     def test_existing_inputs_defaults_outputs_and_secrets_remain_compatible(self):
         legacy = json.loads(
