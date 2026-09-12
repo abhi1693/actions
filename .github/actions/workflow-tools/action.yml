@@ -1,0 +1,14 @@
+name: Shared workflow tools
+description: Locate helpers from the same commit as the calling shared workflow.
+outputs:
+  path:
+    description: Absolute helper directory.
+    value: ${{ steps.path.outputs.path }}
+runs:
+  using: composite
+  steps:
+    - id: path
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: echo "path=$ACTION_PATH" >> "$GITHUB_OUTPUT"

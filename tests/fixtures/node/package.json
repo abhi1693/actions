@@ -1,0 +1,11 @@
+{
+  "name": "shared-node-ci-fixture",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "ci:lint": "node --check check.cjs",
+    "ci:typecheck": "node --check check.cjs",
+    "ci:test": "node check.cjs",
+    "ci:build": "node -e \"require('node:fs').accessSync('package-lock.json')\""
+  }
+}

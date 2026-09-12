@@ -1,14 +1,119 @@
 name: Validate shared workflows
 on:
-  push:
-  pull_request:
+  push: {}
+  pull_request: {}
+  workflow_call: {}
 permissions:
   contents: read
 jobs:
-  validate:
+  contracts:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
+          fetch-depth: 1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+      - name: Lint workflows
+        run: |-
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 \
+            -ignore 'specifying action "\$/.github/actions/workflow-tools" in invalid format because ref is missing' -color
+      - name: Lint Python helpers
+        run: |-
+          uvx ruff==0.16.7 check --isolated --select E4,E7,E9,F,I .github/actions/workflow-tools tests
+          uvx ruff==0.16.7 format --isolated --check .github/actions/workflow-tools tests
+      - name: Test contracts
+        run: uv run --with PyYAML==6.0.3 python -m unittest discover -s tests -v
+  node:
+    uses: ./.github/workflows/node-ci.yml
+    with:
+      working-directory: tests/fixtures/node
+      cache-dependency-path: tests/fixtures/node/package-lock.json
+      checks: '["lint","typecheck","test","build"]'
+      project-env: '{"CI_FIXTURE":"node"}'
+      test-results-path: tests/fixtures/node/reports/*.xml
+      test-results-name: fixture-node
+      postgres-image: postgres:17-alpine
+      postgres-database: fixture_test
+  python:
+    uses: ./.github/workflows/python-ci.yml
+    with:
+      working-directory: tests/fixtures/python
+      python-version: '3.13'
+      sync-command: uv sync --locked --extra dev
+      test-command: uv run python check.py
+      project-env: '{"CI_FIXTURE":"python"}'
+      test-results-path: tests/fixtures/python/reports/*.xml
+      test-results-name: fixture-python
+      timeout-minutes: 10
+      enable-cache: false
+  security:
+    uses: ./.github/workflows/security.yml
+    with:
+      workflow-lint: false
+      npm-audit: true
+      npm-directory: tests/fixtures/node
+      python-audit: true
+      python-directory: tests/fixtures/python
+      artifact-prefix: fixture-security
+  container-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Setup fixture compiler
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: 1.26.7
+          cache: false
+      - name: Build static runtime fixture
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o tests/fixtures/container/fixture tests/fixtures/container/main.go
+      - name: Upload fixture binary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: container-fixture-source
+          path: tests/fixtures/container/fixture
+          if-no-files-found: error
+          retention-days: 1
+  containers:
+    needs: container-source
+    uses: ./.github/workflows/container-images.yml
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    with:
+      manifest: tests/fixtures/container/images.json
+      artifact-scope: fixture
+      changed-only: false
+      publish: false
+      source-artifact: container-fixture-source
+      source-artifact-path: tests/fixtures/container
+  required:
+    name: Shared workflows required
+    needs:
+      - contracts
+      - node
+      - python
+      - security
+      - containers
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every contract and fixture to pass
+        run: echo "$RESULTS" | jq -e 'all(.[]; .result == "success")'
+        env:
+          RESULTS: ${{ toJSON(needs) }}

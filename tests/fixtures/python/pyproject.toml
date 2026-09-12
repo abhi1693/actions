@@ -1,0 +1,11 @@
+[project]
+name = "shared-python-ci-fixture"
+version = "1.0.0"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+dev = []
+
+[tool.uv]
+package = false
