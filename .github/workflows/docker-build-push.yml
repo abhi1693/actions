@@ -374,6 +374,7 @@ jobs:
           IMAGE_REF: ${{ steps.runtime.outputs.image }}
           PLATFORM: ${{ matrix.platform }}
           APP_VERSION: ${{ inputs.app-version }}
+          CI_IMAGE_COMPONENT: ${{ inputs.image-title }}
         run: |-
           case "$SCRIPT" in /*|../*|*/../*) echo 'Smoke script must be inside the repository' >&2; exit 1 ;; esac
           case "$(uname -m)" in x86_64) native=linux/amd64 ;; aarch64) native=linux/arm64 ;; *) exit 1 ;; esac

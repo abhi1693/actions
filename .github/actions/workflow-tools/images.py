@@ -291,6 +291,11 @@ def plan():
             ".".join(version.split(".")[: 1 if alias == "major" else 2])
             for alias in aliases
         )
+    prefix = os.environ.get("RELEASE_TAG_PREFIX", "")
+    if prefix not in ("", "v"):
+        raise ValueError("release-tag-prefix must be empty or v")
+    if mode == "release" and prefix:
+        tags = [prefix + tag if tag == version else tag for tag in tags]
     changed = None
     if mode != "release" and os.environ["CHANGED_ONLY"] == "true":
         base = event.get("pull_request", {}).get("base", {}).get("sha") or event.get(
@@ -500,17 +505,20 @@ def promote(plan, directory, destination):
                 raise ValueError("Promotion changed the verified digest")
         published[item["id"]] = f"{item['image']}@{digest}"
     result = {
-        k: plan[k]
-        for k in (
-            "schema-version",
-            "repository",
-            "revision",
-            "run-id",
-            "version",
-            "scope",
-        )
+        "schema_version": 1,
+        "repository": plan["repository"],
+        "revision": plan["revision"],
+        "run_id": plan["run-id"],
+        "version": plan["version"],
+        "scope": plan["scope"],
+        "platforms": sorted({p for item in plan["images"] for p in item["platforms"]}),
+        "images": published,
+        "published_tags": {
+            item["id"]: item["image"] + ":" + item["final-tags"][0]
+            for item in plan["images"]
+        },
+        "immutable_release": plan["mode"] == "release",
     }
-    result["images"] = published
     Path(destination).write_text(json.dumps(result, indent=2))
     return result
 
