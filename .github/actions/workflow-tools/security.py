@@ -31,7 +31,7 @@ def sarif_gate(directory):
             for invocation in run.get("invocations", []):
                 if invocation.get("executionSuccessful") is False:
                     raise ValueError("SARIF records a failed analysis")
-            results = run.get("results", [])
+            results = run["results"]
             if not isinstance(results, list):
                 raise ValueError("Invalid SARIF results")
             # Existing/baselined findings still count. Exceptions belong in scanner config.
