@@ -59,7 +59,7 @@ permissions:
 
 jobs:
   validate:
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@98222de88f6768904e43a1a92a32e2bdc9a16e4c
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@59178a1adfb1547da9ba94fdd46962c510b8eb1f
     with:
       node-version: '24'
       checks: '["lint", "test", "build"]'
