@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="360" viewBox="0 0 1280 360" role="img" aria-labelledby="title description">
+  <title id="title">One standard. Every repository.</title>
+  <desc id="description">Shared GitHub Actions for continuous integration, security and container delivery. A pipeline connects Build, Verify, Attest and Promote.</desc>
+  <defs>
+    <linearGradient id="background" x2="1" y2="1">
+      <stop stop-color="#0d1728"/>
+      <stop offset="1" stop-color="#101e30"/>
+    </linearGradient>
+    <linearGradient id="accent">
+      <stop stop-color="#67e8f9"/>
+      <stop offset="1" stop-color="#a7f3d0"/>
+    </linearGradient>
+    <radialGradient id="glow">
+      <stop stop-color="#164e63" stop-opacity=".6"/>
+      <stop offset="1" stop-color="#164e63" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#94a3b8" stroke-opacity=".045"/>
+    </pattern>
+  </defs>
+  <rect x="1" y="1" width="1278" height="358" rx="24" fill="url(#background)" stroke="#24374c"/>
+  <rect x="16" y="16" width="1248" height="328" rx="16" fill="url(#grid)"/>
+  <ellipse cx="1050" cy="175" rx="225" ry="175" fill="url(#glow)"/>
+  <g font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+    <text x="64" y="63" fill="#94a3b8" font-size="13" font-weight="600" letter-spacing="3">ABHI1693 / ACTIONS</text>
+    <text x="60" y="143" fill="#f8fafc" font-size="62" font-weight="700" letter-spacing="-2">One standard.</text>
+    <text x="60" y="216" fill="url(#accent)" font-size="62" font-weight="700" letter-spacing="-2">Every repository.</text>
+    <text x="64" y="263" fill="#a9b9cc" font-size="19">Reusable workflows. Consistent delivery.</text>
+    <text x="64" y="316" fill="#71869f" font-size="12" font-weight="600" letter-spacing="2.5">CI<tspan dx="22">/</tspan><tspan dx="22">SECURITY</tspan><tspan dx="22">/</tspan><tspan dx="22">CONTAINERS</tspan></text>
+    <path d="M834 86V266" fill="none" stroke="#36556c" stroke-width="2"/>
+    <g fill="#13283a" stroke="#36556c">
+      <rect x="804" y="57" width="392" height="48" rx="12"/>
+      <rect x="804" y="119" width="392" height="48" rx="12"/>
+      <rect x="804" y="181" width="392" height="48" rx="12"/>
+      <rect x="804" y="243" width="392" height="48" rx="12"/>
+    </g>
+    <g fill="#67e8f9">
+      <circle cx="834" cy="81" r="5"/><circle cx="834" cy="143" r="5"/>
+      <circle cx="834" cy="205" r="5"/><circle cx="834" cy="267" r="5"/>
+    </g>
+    <g fill="#e2e8f0" font-size="17" font-weight="600">
+      <text x="857" y="87">Build</text><text x="857" y="149">Verify</text>
+      <text x="857" y="211">Attest</text><text x="857" y="273">Promote</text>
+    </g>
+    <g fill="#90a8be" font-size="13" text-anchor="end">
+      <text x="1173" y="86">Native images</text><text x="1173" y="148">Runtime checks</text>
+      <text x="1173" y="210">Build provenance</text><text x="1173" y="272">Verified digests</text>
+    </g>
+  </g>
+</svg>
