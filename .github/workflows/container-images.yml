@@ -1,0 +1,308 @@
+name: Container images
+on:
+  workflow_call:
+    inputs:
+      manifest:
+        description: Repository-owned JSON image descriptors.
+        required: false
+        type: string
+        default: .github/images.json
+      publish:
+        description: Publish only on trusted branches or release events; PRs must leave false.
+        required: false
+        type: boolean
+        default: false
+      version:
+        description: Explicit semver for manual releases; otherwise derived from release/tag.
+        required: false
+        type: string
+        default: ''
+      version-file:
+        description: Optional package.json or pyproject.toml to check release version parity.
+        required: false
+        type: string
+        default: ''
+      changed-only:
+        description: Select affected images on pushes and PRs. Releases always select all.
+        required: false
+        type: boolean
+        default: true
+      artifact-scope:
+        description: Unique scope for concurrent image workflow calls.
+        required: false
+        type: string
+        default: images
+      trusted-branches:
+        description: JSON branch names allowed to publish.
+        required: false
+        type: string
+        default: '["master","main"]'
+      amd64-runner:
+        description: Native AMD64 Linux runner.
+        required: false
+        type: string
+        default: ubuntu-24.04
+      arm64-runner:
+        description: Native ARM64 Linux runner.
+        required: false
+        type: string
+        default: ubuntu-24.04-arm
+      scan:
+        description: Generate SBOM and require HIGH/CRITICAL runtime scan to pass.
+        required: false
+        type: boolean
+        default: true
+      scan-ignore-unfixed:
+        description: Exclude vulnerabilities without fixes.
+        required: false
+        type: boolean
+        default: false
+      attest:
+        description: Attest verified published digests before final promotion.
+        required: false
+        type: boolean
+        default: true
+      environment:
+        description: Optional GitHub environment for build credentials/protection.
+        required: false
+        type: string
+        default: ''
+      source-artifact:
+        description: Optional same-run artifact containing generated build files.
+        required: false
+        type: string
+        default: ''
+      source-artifact-path:
+        description: Download source artifact here relative to workspace.
+        required: false
+        type: string
+        default: .
+      latest:
+        description: Advance latest for stable releases.
+        required: false
+        type: boolean
+        default: true
+      release-aliases:
+        description: JSON optional moving major/minor release aliases.
+        required: false
+        type: string
+        default: '[]'
+    secrets:
+      github-token:
+        description: Optional GHCR token override.
+        required: false
+      build-env:
+        description: JSON map from component id to BuildKit environment file content.
+        required: false
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      selected: ${{ steps.plan.outputs.selected }}
+      candidate: ${{ steps.plan.outputs.candidate }}
+      version: ${{ steps.plan.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Load shared helpers
+        id: tools
+        uses: $/.github/actions/workflow-tools
+      - name: Validate and select images
+        id: plan
+        env:
+          TOOLS: ${{ steps.tools.outputs.path }}
+          MANIFEST: ${{ inputs.manifest }}
+          PUBLISH: ${{ inputs.publish }}
+          VERSION: ${{ inputs.version }}
+          VERSION_FILE: ${{ inputs.version-file }}
+          TRUSTED_BRANCHES: ${{ inputs.trusted-branches }}
+          CHANGED_ONLY: ${{ inputs.changed-only }}
+          ARTIFACT_SCOPE: ${{ inputs.artifact-scope }}
+          AMD64_RUNNER: ${{ inputs.amd64-runner }}
+          ARM64_RUNNER: ${{ inputs.arm64-runner }}
+          LATEST: ${{ inputs.latest }}
+          RELEASE_ALIASES: ${{ inputs.release-aliases }}
+        run: python3 "$TOOLS/images.py" plan
+      - name: Upload selected image plan
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: image-plan-${{ inputs.artifact-scope }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/image-plan-${{ inputs.artifact-scope }}.json
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 7
+  build:
+    name: ${{ matrix.id }}
+    needs: plan
+    if: needs.plan.outputs.selected == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    uses: ./.github/workflows/docker-build-push.yml
+    permissions:
+      contents: read
+      packages: write
+    with:
+      image: ${{ matrix.image }}
+      image-title: ${{ matrix.id }}
+      file: ${{ matrix.file }}
+      context: ${{ matrix.context }}
+      target: ${{ matrix.target }}
+      matrix: ${{ matrix.matrix }}
+      cache-scope: ${{ matrix.cache-scope }}
+      tags: type=raw,value=${{ needs.plan.outputs.candidate }}
+      flavor: latest=false
+      labels: ${{ matrix.labels }}
+      build-args: ${{ matrix.build-args }}
+      app-version: ${{ needs.plan.outputs.version }}
+      push: ${{ inputs.publish }}
+      scan: ${{ inputs.scan }}
+      scan-ignore-unfixed: ${{ inputs.scan-ignore-unfixed }}
+      smoke-script: ${{ matrix.smoke-script }}
+      provenance: mode=max
+      sbom: true
+      digest-artifact-name: ${{ matrix.artifact }}
+      environment: ${{ inputs.environment }}
+      source-artifact: ${{ inputs.source-artifact }}
+      source-artifact-path: ${{ inputs.source-artifact-path }}
+      build-env-secret-id: ${{ matrix.secret-id }}
+    secrets:
+      github-token: ${{ secrets.github-token || github.token }}
+      build-env: ${{ fromJSON(secrets.build-env || '{}')[matrix.id] || '' }}
+  attest:
+    needs:
+      - plan
+      - build
+    if: inputs.publish && inputs.attest && needs.plan.outputs.selected == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - name: Download verified result
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ runner.temp }}/result
+      - name: Validate result identity
+        id: result
+        env:
+          IMAGE: ${{ matrix.image }}
+          RESULT: ${{ runner.temp }}/result/image-result.json
+        run: |-
+          jq -e --arg image "$IMAGE" --arg revision "$GITHUB_SHA" --arg run "$GITHUB_RUN_ID" \
+            '.image == $image and .revision == $revision and .["run-id"] == $run and (.digest | test("^sha256:[a-f0-9]{64}$"))' "$RESULT"
+          echo "digest=$(jq -r .digest "$RESULT")" >> "$GITHUB_OUTPUT"
+      - name: Login to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.github-token || github.token }}
+      - name: Attest verified digest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ matrix.image }}
+          subject-digest: ${{ steps.result.outputs.digest }}
+          push-to-registry: true
+  promote:
+    needs:
+      - plan
+      - build
+      - attest
+    if: ${{ !cancelled() && inputs.publish && needs.plan.outputs.selected == 'true' && needs.build.result == 'success' && (needs.attest.result == 'success'
+      || (!inputs.attest && needs.attest.result == 'skipped')) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    concurrency:
+      group: image-promotion-${{ github.repository }}
+      cancel-in-progress: false
+    steps:
+      - name: Load shared helpers
+        id: tools
+        uses: $/.github/actions/workflow-tools
+      - name: Download plan
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: image-plan-${{ inputs.artifact-scope }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/plan
+      - name: Download verified image set
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: image-result-${{ inputs.artifact-scope }}-${{ github.run_id }}-*
+          path: ${{ runner.temp }}/results
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - name: Login to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.github-token || github.token }}
+      - name: Promote verified images
+        env:
+          TOOLS: ${{ steps.tools.outputs.path }}
+          PLAN_PATH: ${{ runner.temp }}/plan/image-plan-${{ inputs.artifact-scope }}.json
+          RESULTS_DIR: ${{ runner.temp }}/results
+          MANIFEST_PATH: ${{ runner.temp }}/image-manifest.json
+        run: |-
+          python3 "$TOOLS/images.py" promote
+          cat "$MANIFEST_PATH" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload promoted image manifest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: image-manifest-${{ inputs.artifact-scope }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/image-manifest.json
+          if-no-files-found: error
+          retention-days: 90
+  required:
+    name: Images required
+    needs:
+      - plan
+      - build
+      - attest
+      - promote
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require all selected image gates
+        env:
+          PLAN: ${{ needs.plan.result }}
+          SELECTED: ${{ needs.plan.outputs.selected }}
+          BUILD: ${{ needs.build.result }}
+          ATTEST: ${{ needs.attest.result }}
+          PROMOTE: ${{ needs.promote.result }}
+          PUBLISH: ${{ inputs.publish }}
+          SHOULD_ATTEST: ${{ inputs.attest }}
+        run: |-
+          test "$PLAN" = success
+          if [ "$SELECTED" = false ]; then
+            test "$BUILD" = skipped && test "$ATTEST" = skipped && test "$PROMOTE" = skipped
+          else
+            test "$BUILD" = success
+            if [ "$PUBLISH" = true ]; then
+              test "$PROMOTE" = success
+              if [ "$SHOULD_ATTEST" = true ]; then test "$ATTEST" = success; else test "$ATTEST" = skipped; fi
+            else
+              test "$ATTEST" = skipped && test "$PROMOTE" = skipped
+            fi
+          fi

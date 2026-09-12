@@ -1,0 +1,275 @@
+name: Security
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: Linux runner label.
+        required: false
+        type: string
+        default: ubuntu-24.04
+      secret-scan:
+        description: Scan complete Git history for secrets.
+        required: false
+        type: boolean
+        default: true
+      gitleaks-config:
+        description: Optional repository-owned gitleaks configuration path.
+        required: false
+        type: string
+        default: ''
+      workflow-lint:
+        description: Run actionlint.
+        required: false
+        type: boolean
+        default: true
+      npm-audit:
+        description: Audit npm lockfile.
+        required: false
+        type: boolean
+        default: false
+      npm-directory:
+        description: Directory containing the npm lockfile.
+        required: false
+        type: string
+        default: .
+      node-version:
+        description: Node version for npm auditing.
+        required: false
+        type: string
+        default: '24'
+      npm-severity:
+        description: 'Minimum npm severity: low, moderate, high, critical.'
+        required: false
+        type: string
+        default: high
+      npm-include-dev:
+        description: Include development dependencies.
+        required: false
+        type: boolean
+        default: true
+      python-audit:
+        description: Audit locked uv dependencies.
+        required: false
+        type: boolean
+        default: false
+      python-directory:
+        description: Directory containing the uv project.
+        required: false
+        type: string
+        default: .
+      python-version:
+        description: Python version for dependency export.
+        required: false
+        type: string
+        default: '3.13'
+      uv-version:
+        description: Optional uv version.
+        required: false
+        type: string
+        default: ''
+      python-include-dev:
+        description: Include Python development dependencies.
+        required: false
+        type: boolean
+        default: true
+      python-all-packages:
+        description: Audit every package in the uv workspace.
+        required: false
+        type: boolean
+        default: false
+      python-extras:
+        description: JSON list of Python extras to include.
+        required: false
+        type: string
+        default: '[]'
+      codeql-languages:
+        description: JSON language list; empty disables CodeQL.
+        required: false
+        type: string
+        default: '[]'
+      codeql-config:
+        description: Optional CodeQL configuration path.
+        required: false
+        type: string
+        default: ''
+      codeql-build-mode:
+        description: CodeQL build mode for supported languages.
+        required: false
+        type: string
+        default: none
+      artifact-prefix:
+        description: Unique artifact prefix per call.
+        required: false
+        type: string
+        default: security
+      timeout-minutes:
+        description: Maximum duration per security job.
+        required: false
+        type: number
+        default: 30
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  secrets:
+    if: inputs.secret-scan
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Scan history for secrets
+        run: |-
+          mkdir -p "$REPORTS"
+          args=()
+          if [ -n "$CONFIG" ]; then args+=(--config "$CONFIG"); fi
+          go run github.com/zricethezav/gitleaks/v8@v8.30.1 git --redact --no-banner \
+            --report-format json --report-path "$REPORTS/gitleaks.json" "${args[@]}" .
+        env:
+          CONFIG: ${{ inputs.gitleaks-config }}
+          REPORTS: ${{ runner.temp }}/security-reports
+      - name: Upload security report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact-prefix }}-secrets
+          path: ${{ runner.temp }}/security-reports/gitleaks.json
+          if-no-files-found: error
+          retention-days: 14
+  workflows:
+    if: inputs.workflow-lint
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Lint workflows
+        run: |-
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 \
+            -ignore 'specifying action "\$/.github/actions/workflow-tools" in invalid format because ref is missing' -color
+  npm:
+    if: inputs.npm-audit
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Load shared helpers
+        id: tools
+        uses: $/.github/actions/workflow-tools
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          package-manager-cache: false
+      - name: Audit npm dependencies
+        run: python3 "$TOOLS/security.py" npm
+        env:
+          TOOLS: ${{ steps.tools.outputs.path }}
+          AUDIT_LEVEL: ${{ inputs.npm-severity }}
+          INCLUDE_DEV: ${{ inputs.npm-include-dev }}
+          AUDIT_REPORT: ${{ runner.temp }}/security-reports/npm.json
+        working-directory: ${{ inputs.npm-directory }}
+      - name: Upload security report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact-prefix }}-npm
+          path: ${{ runner.temp }}/security-reports/npm.json
+          if-no-files-found: error
+          retention-days: 14
+  python:
+    if: inputs.python-audit
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Load shared helpers
+        id: tools
+        uses: $/.github/actions/workflow-tools
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ inputs.python-version }}
+      - name: Setup uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: ${{ inputs.uv-version }}
+          enable-cache: true
+      - name: Audit Python dependencies
+        run: python3 "$TOOLS/security.py" python
+        env:
+          TOOLS: ${{ steps.tools.outputs.path }}
+          INCLUDE_DEV: ${{ inputs.python-include-dev }}
+          ALL_PACKAGES: ${{ inputs.python-all-packages }}
+          EXTRAS: ${{ inputs.python-extras }}
+          AUDIT_REPORT: ${{ runner.temp }}/security-reports/python.json
+        working-directory: ${{ inputs.python-directory }}
+      - name: Upload security report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact-prefix }}-python
+          path: ${{ runner.temp }}/security-reports/python.json
+          if-no-files-found: error
+          retention-days: 14
+  codeql:
+    if: inputs.codeql-languages != '[]'
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Load shared helpers
+        id: tools
+        uses: $/.github/actions/workflow-tools
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ inputs.codeql-build-mode }}
+          queries: security-extended
+          config-file: ${{ inputs.codeql-config }}
+      - name: Analyze
+        uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          category: /language:${{ matrix.language }}
+          output: ${{ runner.temp }}/codeql
+      - name: Block on analysis findings
+        run: python3 "$TOOLS/security.py" sarif
+        env:
+          TOOLS: ${{ steps.tools.outputs.path }}
+          SARIF_DIRECTORY: ${{ runner.temp }}/codeql
+      - name: Upload security report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact-prefix }}-codeql-${{ matrix.language }}
+          path: ${{ runner.temp }}/codeql
+          if-no-files-found: error
+          retention-days: 14
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ${{ fromJSON(inputs.codeql-languages) }}

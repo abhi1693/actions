@@ -1,6 +1,4 @@
----
 name: Docker Build Push
-
 on:
   workflow_call:
     inputs:
@@ -13,12 +11,12 @@ on:
         description: Human-readable service name in the Actions job graph.
         required: false
         type: string
-        default: ""
+        default: ''
       matrix:
         description: JSON array of runner/platform pairs. Empty uses runs-on/platforms (ARM64 by default).
         required: false
         type: string
-        default: ""
+        default: ''
       image:
         description: Fully qualified image name passed to docker/metadata-action.
         required: true
@@ -32,7 +30,7 @@ on:
         description: Artifact to download into the checked-out workspace before building.
         required: false
         type: string
-        default: ""
+        default: ''
       source-artifact-path:
         description: Path where the source artifact should be downloaded.
         required: false
@@ -56,32 +54,32 @@ on:
         description: Multiline Docker build args.
         required: false
         type: string
-        default: ""
+        default: ''
       target:
         description: Dockerfile target stage.
         required: false
         type: string
-        default: ""
+        default: ''
       secret-files:
         description: Multiline Docker secret file mappings.
         required: false
         type: string
-        default: ""
+        default: ''
       build-secret-artifact:
         description: Artifact containing a Docker build secret file.
         required: false
         type: string
-        default: ""
+        default: ''
       build-secret-file:
         description: File name inside the build secret artifact.
         required: false
         type: string
-        default: ""
+        default: ''
       build-secret-id:
         description: Docker BuildKit secret id for the artifact file.
         required: false
         type: string
-        default: ""
+        default: ''
       tags:
         description: Multiline docker/metadata-action tag rules.
         required: true
@@ -90,12 +88,12 @@ on:
         description: Optional docker/metadata-action flavor configuration.
         required: false
         type: string
-        default: ""
+        default: ''
       labels:
         description: Multiline docker/metadata-action labels.
         required: false
         type: string
-        default: ""
+        default: ''
       cache-scope:
         description: Shared cache scope suffix.
         required: true
@@ -104,16 +102,64 @@ on:
         description: DOCKER_METADATA_SHORT_SHA_LENGTH value.
         required: false
         type: string
-        default: "7"
+        default: '7'
       push:
         description: Whether to push the built image.
         required: false
         type: boolean
         default: true
+      provenance:
+        description: BuildKit provenance mode; empty preserves build action defaults.
+        required: false
+        type: string
+        default: ''
+      sbom:
+        description: Generate BuildKit SBOM attestations.
+        required: false
+        type: boolean
+        default: false
+      scan:
+        description: Generate a runtime SBOM and block HIGH/CRITICAL vulnerabilities.
+        required: false
+        type: boolean
+        default: false
+      scan-ignore-unfixed:
+        description: Ignore vulnerabilities without fixes.
+        required: false
+        type: boolean
+        default: false
+      smoke-script:
+        description: Repository Bash script receiving image reference, platform and app version.
+        required: false
+        type: string
+        default: ''
+      app-version:
+        description: Version passed to runtime smoke checks.
+        required: false
+        type: string
+        default: ''
+      digest-artifact-name:
+        description: Optional unique component result artifact name for downstream promotion.
+        required: false
+        type: string
+        default: ''
+      environment:
+        description: Optional GitHub environment for build secrets/protections.
+        required: false
+        type: string
+        default: ''
+      build-env-secret-id:
+        description: BuildKit secret id for the build-env secret.
+        required: false
+        type: string
+        default: env
     secrets:
       github-token:
         description: Token used to authenticate to GHCR.
         required: true
+      build-env:
+        description: Optional build environment file content, written only in the build job.
+        required: false
     outputs:
       tags:
         description: Generated image tags.
@@ -124,15 +170,12 @@ on:
       digest:
         description: Pushed image digest.
         value: ${{ inputs.matrix == '' && jobs.build.outputs.digest || jobs.index.outputs.digest }}
-
 permissions:
   contents: read
   packages: write
-
 defaults:
   run:
     shell: bash
-
 jobs:
   build:
     name: ${{ inputs.image-title || inputs.image }} — ${{ matrix.platform }} build
@@ -141,7 +184,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: >-
+        include: |-
           ${{ fromJSON(inputs.matrix ||
               format('[{{"runner":{0},"platform":{1}}}]', toJSON(inputs.runs-on), toJSON(inputs.platforms))) }}
     outputs:
@@ -150,13 +193,17 @@ jobs:
       digest: ${{ steps.build.outputs.digest }}
     env:
       DOCKER_METADATA_SHORT_SHA_LENGTH: ${{ inputs.short-sha-length }}
-
     steps:
+      - name: Load shared helpers
+        id: tools
+        uses: $/.github/actions/workflow-tools
       - name: Resolve platform cache key
         id: platform
         env:
           PLATFORM: ${{ matrix.platform }}
           BUILD_MATRIX: ${{ inputs.matrix }}
+          SCAN: ${{ inputs.scan }}
+          SMOKE_SCRIPT: ${{ inputs.smoke-script }}
         run: |
           # Legacy single-runner mode can contain a comma-separated platform list.
           key=$(printf '%s' "$PLATFORM" | tr '/,' '--')
@@ -167,23 +214,26 @@ jobs:
               all(.[]; (.runner | type == "string") and (.platform | test("^[a-z0-9]+/[a-z0-9_]+(/[a-z0-9_]+)?$"))) and
               ([.[].platform | sub("/arm64/v8$"; "/arm64") | sub("/amd64/v1$"; "/amd64")] | length == (unique | length))'
           fi
+
+          if { [ "$SCAN" = true ] || [ -n "$SMOKE_SCRIPT" ]; } && [[ "$PLATFORM" == *,* ]]; then
+            echo 'Runtime verification requires one platform per job; use the native matrix input.' >&2
+            exit 1
+          fi
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
+        with:
+          persist-credentials: false
       - name: Download source artifact
         if: inputs.source-artifact != ''
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ inputs.source-artifact }}
           path: ${{ inputs.source-artifact-path }}
-
       - name: Set up QEMU
         if: inputs.qemu
         uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
-
       - name: Login to GHCR
         if: inputs.push
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -191,25 +241,22 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.github-token }}
-
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ inputs.image }}
           flavor: ${{ inputs.matrix != '' && 'latest=false' || inputs.flavor }}
-          tags: >-
+          tags: |-
             ${{ inputs.matrix != '' &&
                 format('type=raw,value=candidate-{0}-{1}-{2}-{3}', github.sha, github.run_id, github.run_attempt, steps.platform.outputs.key) || inputs.tags }}
           labels: ${{ inputs.labels }}
-
       - name: Download build secret artifact
         if: inputs.build-secret-artifact != ''
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ inputs.build-secret-artifact }}
           path: ${{ runner.temp }}/docker-build-secrets
-
       - name: Resolve Docker secret files
         id: secret-files
         env:
@@ -218,6 +265,8 @@ jobs:
           BUILD_SECRET_ID: ${{ inputs.build-secret-id }}
           INPUT_SECRET_FILES: ${{ inputs.secret-files }}
           SECRET_DIR: ${{ runner.temp }}/docker-build-secrets
+          DIRECT_SECRET: ${{ secrets.build-env }}
+          DIRECT_SECRET_ID: ${{ inputs.build-env-secret-id }}
         run: |
           {
             echo "value<<EOF"
@@ -227,9 +276,14 @@ jobs:
             if [ -n "$BUILD_SECRET_ARTIFACT" ]; then
               printf '%s=%s/%s\n' "$BUILD_SECRET_ID" "$SECRET_DIR" "$BUILD_SECRET_FILE"
             fi
+            if [ -n "$DIRECT_SECRET" ]; then
+              umask 077
+              mkdir -p "$SECRET_DIR"
+              printf '%s' "$DIRECT_SECRET" > "$SECRET_DIR/direct-env"
+              printf '%s=%s/direct-env\n' "$DIRECT_SECRET_ID" "$SECRET_DIR"
+            fi
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
-
       - name: Resolve cache settings
         id: cache
         env:
@@ -251,7 +305,6 @@ jobs:
             printf 'type=gha,mode=max,scope=%s\n' "$CACHE_SCOPE"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
-
       - name: Build and push
         id: build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
@@ -267,7 +320,77 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: ${{ steps.cache.outputs.from }}
           cache-to: ${{ steps.cache.outputs.to }}
-
+          provenance: ${{ !inputs.push && (inputs.scan || inputs.smoke-script != '') && 'false' || inputs.provenance }}
+          sbom: ${{ inputs.push && inputs.sbom }}
+          load: ${{ !inputs.push && (inputs.scan || inputs.smoke-script != '') }}
+      - name: Resolve exact runtime image
+        id: runtime
+        if: inputs.scan || inputs.smoke-script != ''
+        env:
+          IMAGE_NAME: ${{ inputs.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+          PLATFORM: ${{ matrix.platform }}
+          PUSH: ${{ inputs.push }}
+        run: |-
+          mkdir -p "$RUNNER_TEMP/image-reports"
+          if [ "$PUSH" = true ]; then
+            [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+            image="$IMAGE_NAME@$DIGEST"
+            docker pull --platform "$PLATFORM" "$image"
+          else
+            image=$(head -n 1 <<< "$TAGS")
+            test -n "$image"
+          fi
+          docker image inspect "$image" >/dev/null
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+      - name: Generate runtime SBOM
+        if: inputs.scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.74.0
+          image-ref: ${{ steps.runtime.outputs.image }}
+          format: cyclonedx
+          output: ${{ runner.temp }}/image-reports/sbom.cdx.json
+          scanners: vuln
+          timeout: 15m
+      - name: Scan runtime image
+        if: inputs.scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.74.0
+          image-ref: ${{ steps.runtime.outputs.image }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: ${{ inputs.scan-ignore-unfixed }}
+          scanners: vuln,secret
+          exit-code: '1'
+          format: json
+          output: ${{ runner.temp }}/image-reports/trivy.json
+          timeout: 15m
+      - name: Smoke-test runtime image
+        if: inputs.smoke-script != ''
+        env:
+          SCRIPT: ${{ inputs.smoke-script }}
+          IMAGE_REF: ${{ steps.runtime.outputs.image }}
+          PLATFORM: ${{ matrix.platform }}
+          APP_VERSION: ${{ inputs.app-version }}
+        run: |-
+          case "$SCRIPT" in /*|../*|*/../*) echo 'Smoke script must be inside the repository' >&2; exit 1 ;; esac
+          case "$(uname -m)" in x86_64) native=linux/amd64 ;; aarch64) native=linux/arm64 ;; *) exit 1 ;; esac
+          if [ "$PLATFORM" != "$native" ]; then echo 'Smoke tests require a matching native runner' >&2; exit 1; fi
+          bash "$SCRIPT" "$IMAGE_REF" "$PLATFORM" "$APP_VERSION"
+      - name: Upload runtime reports
+        if: always() && inputs.scan
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: image-reports-${{ inputs.cache-scope }}-${{ steps.platform.outputs.key }}
+          path: ${{ runner.temp }}/image-reports
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+      - name: Remove build secret files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/docker-build-secrets"
       - name: Record platform image digest
         if: inputs.matrix != '' && inputs.push
         env:
@@ -282,11 +405,28 @@ jobs:
         with:
           name: platform-digest-${{ inputs.cache-scope }}--${{ steps.platform.outputs.key }}
           path: ${{ runner.temp }}/${{ steps.platform.outputs.key }}.digest
-          # Transient per-run handoff: a partial rerun replaces only its own platform.
           overwrite: true
           if-no-files-found: error
           retention-days: 7
-
+      - name: Record component image result
+        if: inputs.push && inputs.matrix == '' && inputs.digest-artifact-name != ''
+        env:
+          TOOLS: ${{ steps.tools.outputs.path }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE_NAME: ${{ inputs.image }}
+          BUILD_MATRIX: ${{ inputs.matrix || format('[{{"platform":{0}}}]', toJSON(inputs.platforms)) }}
+          RECORD_PATH: ${{ runner.temp }}/image-result.json
+        run: python3 "$TOOLS/images.py" record
+      - name: Upload component image result
+        if: inputs.push && inputs.matrix == '' && inputs.digest-artifact-name != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.digest-artifact-name }}
+          path: ${{ runner.temp }}/image-result.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+    environment: ${{ inputs.environment }}
   index:
     name: ${{ inputs.image-title || inputs.image }} — assemble index
     if: inputs.matrix != '' && inputs.push
@@ -300,6 +440,9 @@ jobs:
     env:
       DOCKER_METADATA_SHORT_SHA_LENGTH: ${{ inputs.short-sha-length }}
     steps:
+      - name: Load shared helpers
+        id: tools
+        uses: $/.github/actions/workflow-tools
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -356,3 +499,21 @@ jobs:
           digest=$(docker buildx imagetools inspect "$first_tag" --format '{{json .Manifest}}' | jq -r .digest)
           [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - name: Record component image result
+        if: inputs.digest-artifact-name != ''
+        env:
+          TOOLS: ${{ steps.tools.outputs.path }}
+          IMAGE_DIGEST: ${{ steps.index.outputs.digest }}
+          IMAGE_NAME: ${{ inputs.image }}
+          BUILD_MATRIX: ${{ inputs.matrix || format('[{{"platform":{0}}}]', toJSON(inputs.platforms)) }}
+          RECORD_PATH: ${{ runner.temp }}/image-result.json
+        run: python3 "$TOOLS/images.py" record
+      - name: Upload component image result
+        if: inputs.digest-artifact-name != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.digest-artifact-name }}
+          path: ${{ runner.temp }}/image-result.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7

@@ -1,0 +1,27 @@
+name: Containers
+on:
+  pull_request:
+  push:
+    branches: [master]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  images:
+    uses: abhi1693/actions/.github/workflows/container-images.yml@v1
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    with:
+      manifest: .github/images.json
+      version: ${{ inputs.version }}
+      publish: ${{ github.event_name != 'pull_request' && github.actor != 'dependabot[bot]' }}
+    secrets:
+      github-token: ${{ secrets.GITHUB_TOKEN }}

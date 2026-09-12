@@ -1,6 +1,4 @@
----
 name: Python UV Tests
-
 on:
   workflow_call:
     inputs:
@@ -13,17 +11,17 @@ on:
         description: Python version passed to actions/setup-python.
         required: false
         type: string
-        default: "3.13"
+        default: '3.13'
       uv-version:
         description: Optional uv version; an empty value uses setup-uv's default.
         required: false
         type: string
-        default: ""
+        default: ''
       test-results-path:
         description: Optional path to test reports to upload, relative to the workspace.
         required: false
         type: string
-        default: ""
+        default: ''
       test-results-name:
         description: Unique artifact name when test-results-path is set.
         required: false
@@ -43,16 +41,58 @@ on:
         description: Optional lint command. Leave empty to skip.
         required: false
         type: string
-        default: ""
+        default: ''
       test-command:
         description: Test command.
         required: false
         type: string
         default: uv run pytest
-
+      timeout-minutes:
+        description: Maximum job duration; preserves the previous GitHub default.
+        required: false
+        type: number
+        default: 360
+      enable-cache:
+        description: Enable uv caching.
+        required: false
+        type: boolean
+        default: true
+      project-env:
+        description: JSON non-secret application environment.
+        required: false
+        type: string
+        default: '{}'
+      postgres-image:
+        description: Optional PostgreSQL service image; exports CI_DATABASE_URL.
+        required: false
+        type: string
+        default: ''
+      validation-command:
+        description: Optional project validation after tests, such as generated OpenAPI checks.
+        required: false
+        type: string
+        default: ''
+      node-version:
+        description: Optional Node setup for projects whose Python checks use npm scripts.
+        required: false
+        type: string
+        default: ''
+      database-env-name:
+        description: Application variable to receive the disposable PostgreSQL URL.
+        required: false
+        type: string
+        default: CI_DATABASE_URL
+      database-url-scheme:
+        description: Database URL scheme, such as postgresql+asyncpg.
+        required: false
+        type: string
+        default: postgresql
+    secrets:
+      project-env:
+        description: Optional JSON application secrets.
+        required: false
 permissions:
   contents: read
-
 jobs:
   test:
     name: Test
@@ -61,32 +101,58 @@ jobs:
       run:
         shell: bash
         working-directory: ${{ inputs.working-directory }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
+        with:
+          persist-credentials: false
+      - name: Load shared helpers
+        id: tools
+        uses: $/.github/actions/workflow-tools
+      - name: Configure project environment
+        run: python3 "$TOOLS/project.py" environment
+        env:
+          TOOLS: ${{ steps.tools.outputs.path }}
+          PROJECT_ENV: ${{ inputs.project-env }}
+          PROJECT_SECRETS: ${{ secrets.project-env }}
+      - name: Export test database URL
+        if: inputs.postgres-image != ''
+        env:
+          DATABASE_PORT: ${{ job.services.postgres.ports['5432'] }}
+          DATABASE_ENV_NAME: ${{ inputs.database-env-name }}
+          DATABASE_SCHEME: ${{ inputs.database-url-scheme }}
+        run: |-
+          [[ "$DATABASE_ENV_NAME" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]
+          case "$DATABASE_ENV_NAME" in GITHUB_*|RUNNER_*|ACTIONS_*|PATH|HOME|BASH_ENV|NODE_OPTIONS|PYTHONPATH|LD_*) exit 1 ;; esac
+          [[ "$DATABASE_SCHEME" =~ ^postgres(ql)?(\+[a-z0-9]+)?$ ]]
+          url="$DATABASE_SCHEME://ci:ci@127.0.0.1:$DATABASE_PORT/ci"
+          echo "CI_DATABASE_URL=$url" >> "$GITHUB_ENV"
+          echo "$DATABASE_ENV_NAME=$url" >> "$GITHUB_ENV"
+      - name: Setup Node
+        if: inputs.node-version != ''
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          package-manager-cache: false
       - name: Setup Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ inputs.python-version }}
-
       - name: Setup UV
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
-          enable-cache: true
+          enable-cache: ${{ inputs.enable-cache }}
           version: ${{ inputs.uv-version }}
-
       - name: Sync dependencies
         run: ${{ inputs.sync-command }}
-
       - name: Lint
         if: inputs.lint-command != ''
         run: ${{ inputs.lint-command }}
-
       - name: Test
         run: ${{ inputs.test-command }}
-
+      - name: Validate project contracts
+        if: inputs.validation-command != ''
+        run: ${{ inputs.validation-command }}
       - name: Upload test results
         if: always() && inputs.test-results-path != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -95,3 +161,14 @@ jobs:
           path: ${{ inputs.test-results-path }}
           if-no-files-found: error
           retention-days: 14
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    services:
+      postgres:
+        image: ${{ inputs.postgres-image }}
+        env:
+          POSTGRES_DB: ci
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+        ports:
+          - 5432/tcp
+        options: --health-cmd "pg_isready -U ci -d ci" --health-interval 5s --health-timeout 5s --health-retries 10

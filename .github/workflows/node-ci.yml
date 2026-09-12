@@ -1,0 +1,308 @@
+name: Node CI
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: Linux runner label.
+        required: false
+        type: string
+        default: ubuntu-24.04
+      node-version:
+        description: Node version; ignored when node-version-file is provided.
+        required: false
+        type: string
+        default: '24'
+      node-version-file:
+        description: Node version file relative to repository root.
+        required: false
+        type: string
+        default: ''
+      working-directory:
+        description: Directory containing package.json and the declared scripts.
+        required: false
+        type: string
+        default: .
+      install-directory:
+        description: Lockfile installation directory; defaults to working-directory.
+        required: false
+        type: string
+        default: ''
+      cache-dependency-path:
+        description: Lockfile path relative to repository root.
+        required: false
+        type: string
+        default: package-lock.json
+      checks:
+        description: JSON array of generate, lint, typecheck, test, build.
+        required: false
+        type: string
+        default: '["lint","test","build"]'
+      scripts:
+        description: JSON map of standard stages to npm scripts; default ci:<stage>.
+        required: false
+        type: string
+        default: '{}'
+      generated-paths:
+        description: JSON paths checked for tracked and untracked changes after generation.
+        required: false
+        type: string
+        default: '[]'
+      ignore-scripts:
+        description: Disable npm install lifecycle scripts.
+        required: false
+        type: boolean
+        default: false
+      legacy-peer-deps:
+        description: Preserve projects requiring legacy peer dependency resolution.
+        required: false
+        type: boolean
+        default: false
+      enable-cache:
+        description: Enable npm download caching.
+        required: false
+        type: boolean
+        default: true
+      project-env:
+        description: JSON object of non-secret application environment variables.
+        required: false
+        type: string
+        default: '{}'
+      postgres-image:
+        description: Optional PostgreSQL service image. Exports CI_DATABASE_URL.
+        required: false
+        type: string
+        default: ''
+      python-version:
+        description: Optional Python setup for API generation; empty skips Python/uv.
+        required: false
+        type: string
+        default: ''
+      uv-version:
+        description: Optional uv version when Python tooling is enabled.
+        required: false
+        type: string
+        default: ''
+      uv-directory:
+        description: Directory to install Python generation dependencies with uv sync --locked.
+        required: false
+        type: string
+        default: .
+      uv-sync-args:
+        description: JSON additional uv sync arguments.
+        required: false
+        type: string
+        default: '[]'
+      browser:
+        description: 'Optional browser tooling: none, cypress or playwright.'
+        required: false
+        type: string
+        default: none
+      browser-results-path:
+        description: Optional screenshots/videos/traces to retain on failure.
+        required: false
+        type: string
+        default: ''
+      timeout-minutes:
+        description: Maximum duration.
+        required: false
+        type: number
+        default: 20
+      test-results-path:
+        description: Test report path relative to the repository root.
+        required: false
+        type: string
+        default: ''
+      test-results-name:
+        description: Unique report artifact name per caller/matrix job.
+        required: false
+        type: string
+        default: node-test-results
+      database-env-name:
+        description: Application variable to receive the disposable PostgreSQL URL.
+        required: false
+        type: string
+        default: CI_DATABASE_URL
+      database-url-scheme:
+        description: Database URL scheme, such as postgresql+asyncpg.
+        required: false
+        type: string
+        default: postgresql
+      prepare-script:
+        description: Optional repository Bash script run before dependency installation, e.g. test environment generation.
+        required: false
+        type: string
+        default: ''
+    secrets:
+      project-env:
+        description: Optional JSON object of application secrets.
+        required: false
+permissions:
+  contents: read
+jobs:
+  node:
+    name: Node checks
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    services:
+      postgres:
+        image: ${{ inputs.postgres-image }}
+        env:
+          POSTGRES_DB: ci
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+        ports:
+          - 5432/tcp
+        options: --health-cmd "pg_isready -U ci -d ci" --health-interval 5s --health-timeout 5s --health-retries 10
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Load shared helpers
+        id: tools
+        uses: $/.github/actions/workflow-tools
+      - name: Validate declared stages
+        run: python3 "$TOOLS/project.py" validate-node
+        env:
+          TOOLS: ${{ steps.tools.outputs.path }}
+          CHECKS: ${{ inputs.checks }}
+          SCRIPTS: ${{ inputs.scripts }}
+      - name: Configure project environment
+        run: python3 "$TOOLS/project.py" environment
+        env:
+          TOOLS: ${{ steps.tools.outputs.path }}
+          PROJECT_ENV: ${{ inputs.project-env }}
+          PROJECT_SECRETS: ${{ secrets.project-env }}
+      - name: Export test database URL
+        if: inputs.postgres-image != ''
+        env:
+          DATABASE_PORT: ${{ job.services.postgres.ports['5432'] }}
+          DATABASE_ENV_NAME: ${{ inputs.database-env-name }}
+          DATABASE_SCHEME: ${{ inputs.database-url-scheme }}
+        run: |-
+          [[ "$DATABASE_ENV_NAME" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]
+          case "$DATABASE_ENV_NAME" in GITHUB_*|RUNNER_*|ACTIONS_*|PATH|HOME|BASH_ENV|NODE_OPTIONS|PYTHONPATH|LD_*) exit 1 ;; esac
+          [[ "$DATABASE_SCHEME" =~ ^postgres(ql)?(\+[a-z0-9]+)?$ ]]
+          url="$DATABASE_SCHEME://ci:ci@127.0.0.1:$DATABASE_PORT/ci"
+          echo "CI_DATABASE_URL=$url" >> "$GITHUB_ENV"
+          echo "$DATABASE_ENV_NAME=$url" >> "$GITHUB_ENV"
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ inputs.node-version-file == '' && inputs.node-version || '' }}
+          node-version-file: ${{ inputs.node-version-file }}
+          cache: ${{ inputs.enable-cache && 'npm' || '' }}
+          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+          package-manager-cache: false
+      - name: Setup Python
+        if: inputs.python-version != ''
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ inputs.python-version }}
+      - name: Setup uv
+        if: inputs.python-version != ''
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: ${{ inputs.uv-version }}
+          enable-cache: true
+      - name: Install generation dependencies
+        run: |-
+          python3 - <<'PYCODE'
+          import json, os, subprocess
+          args = json.loads(os.environ['UV_ARGS'])
+          if not isinstance(args, list) or any(not isinstance(x, str) for x in args):
+              raise ValueError('uv-sync-args must be a JSON string array')
+          subprocess.run(['uv', 'sync', '--locked', *args], check=True)
+          PYCODE
+        if: inputs.python-version != ''
+        working-directory: ${{ inputs.uv-directory }}
+        env:
+          UV_ARGS: ${{ inputs.uv-sync-args }}
+      - name: Prepare project
+        if: inputs.prepare-script != ''
+        env:
+          PREPARE_SCRIPT: ${{ inputs.prepare-script }}
+        run: |-
+          case "$PREPARE_SCRIPT" in /*|../*|*/../*) exit 1 ;; esac
+          bash "$PREPARE_SCRIPT"
+      - name: Install locked Node dependencies
+        run: |-
+          args=()
+          if [ "$IGNORE_SCRIPTS" = true ]; then args+=(--ignore-scripts); fi
+          if [ "$LEGACY_PEERS" = true ]; then args+=(--legacy-peer-deps); fi
+          npm ci "${args[@]}"
+        working-directory: ${{ inputs.install-directory || inputs.working-directory }}
+        env:
+          IGNORE_SCRIPTS: ${{ inputs.ignore-scripts }}
+          LEGACY_PEERS: ${{ inputs.legacy-peer-deps }}
+      - name: Prepare browser tooling
+        run: |-
+          case "$BROWSER" in
+            none) ;;
+            cypress) npm exec --no -- cypress install; npm exec --no -- cypress verify ;;
+            playwright) npm exec --no -- playwright install --with-deps chromium ;;
+            *) echo 'browser must be none, cypress or playwright' >&2; exit 1 ;;
+          esac
+        env:
+          BROWSER: ${{ inputs.browser }}
+      - name: Generate
+        run: python3 "$TOOLS/project.py" generate
+        env:
+          TOOLS: ${{ steps.tools.outputs.path }}
+          CHECKS: ${{ inputs.checks }}
+          SCRIPTS: ${{ inputs.scripts }}
+          GENERATED_PATHS: ${{ inputs.generated-paths }}
+        if: contains(fromJSON(inputs.checks), 'generate')
+      - name: Lint
+        run: python3 "$TOOLS/project.py" lint
+        env:
+          TOOLS: ${{ steps.tools.outputs.path }}
+          CHECKS: ${{ inputs.checks }}
+          SCRIPTS: ${{ inputs.scripts }}
+          GENERATED_PATHS: ${{ inputs.generated-paths }}
+        if: contains(fromJSON(inputs.checks), 'lint')
+      - name: Typecheck
+        run: python3 "$TOOLS/project.py" typecheck
+        env:
+          TOOLS: ${{ steps.tools.outputs.path }}
+          CHECKS: ${{ inputs.checks }}
+          SCRIPTS: ${{ inputs.scripts }}
+          GENERATED_PATHS: ${{ inputs.generated-paths }}
+        if: contains(fromJSON(inputs.checks), 'typecheck')
+      - name: Test
+        run: python3 "$TOOLS/project.py" test
+        env:
+          TOOLS: ${{ steps.tools.outputs.path }}
+          CHECKS: ${{ inputs.checks }}
+          SCRIPTS: ${{ inputs.scripts }}
+          GENERATED_PATHS: ${{ inputs.generated-paths }}
+        if: contains(fromJSON(inputs.checks), 'test')
+      - name: Build
+        run: python3 "$TOOLS/project.py" build
+        env:
+          TOOLS: ${{ steps.tools.outputs.path }}
+          CHECKS: ${{ inputs.checks }}
+          SCRIPTS: ${{ inputs.scripts }}
+          GENERATED_PATHS: ${{ inputs.generated-paths }}
+        if: contains(fromJSON(inputs.checks), 'build')
+      - name: Upload test reports
+        if: always() && inputs.test-results-path != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.test-results-name }}
+          path: ${{ inputs.test-results-path }}
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload browser diagnostics
+        if: failure() && inputs.browser-results-path != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.test-results-name }}-browser
+          path: ${{ inputs.browser-results-path }}
+          if-no-files-found: warn
+          retention-days: 7

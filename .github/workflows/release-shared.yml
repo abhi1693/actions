@@ -1,0 +1,41 @@
+name: Release shared workflows
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Stable semantic version, for example 1.0.0.
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: release-shared-workflows
+  cancel-in-progress: false
+jobs:
+  validate:
+    uses: ./.github/workflows/validate.yml
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+  release:
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Load shared helpers
+        id: tools
+        uses: $/.github/actions/workflow-tools
+      - name: Publish version and advance major ref
+        run: python3 "$TOOLS/release.py"
+        env:
+          TOOLS: ${{ steps.tools.outputs.path }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}

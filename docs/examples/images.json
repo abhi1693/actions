@@ -1,0 +1,8 @@
+{
+  "schema-version": 1,
+  "shared-paths": [".github/**", "package-lock.json", "packages/**"],
+  "images": [
+    {"id": "api", "context": "apps/api", "file": "apps/api/Dockerfile", "platforms": ["linux/amd64", "linux/arm64"], "paths": ["apps/api/**"], "build-args": {"APP_VERSION": "{version}"}, "smoke-script": "scripts/ci/smoke-api.sh"},
+    {"id": "web", "context": ".", "file": "apps/web/Dockerfile", "platforms": ["linux/arm64"], "paths": ["apps/web/**"], "change-dependencies": ["api"]}
+  ]
+}

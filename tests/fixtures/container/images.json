@@ -1,0 +1,10 @@
+{
+  "schema-version": 1,
+  "images": [{
+    "id": "fixture",
+    "context": "tests/fixtures/container",
+    "file": "tests/fixtures/container/Dockerfile",
+    "platforms": ["linux/amd64"],
+    "smoke-script": "tests/fixtures/container/smoke.sh"
+  }]
+}

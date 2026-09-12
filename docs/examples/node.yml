@@ -1,0 +1,20 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [master]
+permissions:
+  contents: read
+jobs:
+  node:
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@v1
+    with:
+      node-version: '24'
+      checks: '["lint", "test", "build"]'
+      scripts: '{"lint":"lint", "test":"test", "build":"build"}'
+  security:
+    uses: abhi1693/actions/.github/workflows/security.yml@v1
+    with:
+      npm-audit: true
+      npm-severity: high
+      npm-include-dev: true
