@@ -8,7 +8,7 @@
 
 Node.js, Python, security checks and container delivery—maintained together,<br> configured by each repository, and versioned through a single shared release process.
 
-[![Validation](https://github.com/abhi1693/actions/actions/workflows/validate.yml/badge.svg)](https://github.com/abhi1693/actions/actions/workflows/validate.yml) [![Security defaults](docs/assets/badge-security.svg)](docs/workflows.md) [![Native platforms](docs/assets/badge-platforms.svg)](docs/examples/images.json) [![Release status](docs/assets/badge-preview.svg)](https://github.com/abhi1693/actions/releases)
+[![Validation](https://github.com/abhi1693/actions/actions/workflows/validate.yml/badge.svg)](https://github.com/abhi1693/actions/actions/workflows/validate.yml) [![Security defaults](docs/assets/badge-security.svg)](docs/workflows.md) [![Native platforms](docs/assets/badge-platforms.svg)](docs/examples/images.json) [![Release status](docs/assets/badge-release.svg)](https://github.com/abhi1693/actions/releases)
 
 [**Get started**](#get-started) · [**Explore workflows**](#the-workflow-library) · [**Documentation**](docs/workflows.md) · [**Examples**](docs/examples)
 
@@ -59,14 +59,14 @@ permissions:
 
 jobs:
   validate:
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@59178a1adfb1547da9ba94fdd46962c510b8eb1f
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@v1
     with:
       node-version: '24'
       checks: '["lint", "test", "build"]'
       scripts: '{"lint":"lint", "test":"test", "build":"build"}'
 ```
 
-The example pins a validated commit. The project is in **preview**; a stable `v1` release has not been published yet. After the first release, choose `@v1` for compatible shared updates or an immutable commit SHA for explicit upgrades.
+The example uses the published **v1** release line. Choose `@v1` for centrally maintained compatible updates, or an immutable commit SHA when upgrades must be explicit. See the [release history](https://github.com/abhi1693/actions/releases).
 
 For containers, declare your components in an [image manifest](docs/examples/images.json) and call the [container suite](docs/examples/containers.yml). The manifest describes each image's context, platforms, change paths and optional smoke script.
 

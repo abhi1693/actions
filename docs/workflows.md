@@ -46,6 +46,13 @@ Repository-specific npm resolution settings belong in the project `.npmrc`, as
 recommended by [npm ci](https://docs.npmjs.com/cli/v11/commands/npm-ci/). The shared
 workflow runs locked installs without separate dependency-compatibility modes.
 
+For centrally maintained first-party releases, `codeql-trusted-workflows` can list
+exact references such as `abhi1693/actions/.github/workflows/node-ci.yml@v1`.
+This explicitly accepts their mutable-major trust model. The gate verifies the
+reported workflow source line, accepts only `actions/unpinned-tag` at that location,
+and retains the warning in SARIF. The default is no exceptions; other references
+and every other finding remain blocking. Prefer immutable SHAs for third-party actions.
+
 ## Image manifests
 
 `container-images.yml` reads a JSON file with `schema-version: 1`, `images`, and optional
@@ -84,8 +91,8 @@ Image plans and final manifests are artifacts. The final `image-manifest-<scope>
 Matrix outputs are not used as a substitute for the complete component result set.
 A no-change selection succeeds through `Images required` without building anything.
 
-The input tables below describe the implementation. Examples use `@v1`; before its
-first release, use the concrete reviewed shared-workflow SHA for staged migration.
+The input tables below describe the implementation. Examples use the published `@v1` major ref; use an immutable reviewed commit SHA
+when upgrades must be explicit.
 
 ## `node-ci.yml`
 
@@ -164,6 +171,7 @@ first release, use the concrete reviewed shared-workflow SHA for staged migratio
 | `python-all-packages` | `false` | Audit every package in the uv workspace. |
 | `python-extras` | `[]` | JSON list of Python extras to include. |
 | `codeql-languages` | `[]` | JSON language list; empty disables CodeQL. |
+| `codeql-trusted-workflows` | `[]` | Exact workflow major refs accepted only for unpinned-tag warnings; reports retain the warning. |
 | `codeql-config` | `` | Optional CodeQL configuration path. |
 | `codeql-build-mode` | `none` | CodeQL build mode for supported languages. |
 | `artifact-prefix` | `security` | Unique artifact prefix per call. |

@@ -484,6 +484,60 @@ class SecurityGates(unittest.TestCase):
             path.write_text(json.dumps({"version": "2.1.0", "runs": [{"results": []}]}))
             security.sarif_gate(tmp)
 
+    def test_trusted_major_ref_exception_is_explicit_and_location_scoped(self):
+        ref = "abhi1693/actions/.github/workflows/node-ci.yml@v1"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflow = root / ".github/workflows/ci.yml"
+            workflow.parent.mkdir(parents=True)
+            workflow.write_text("    uses: " + ref + "\n")
+            result = {
+                "ruleId": "actions/unpinned-tag",
+                "locations": [
+                    {
+                        "physicalLocation": {
+                            "artifactLocation": {"uri": ".github/workflows/ci.yml"},
+                            "region": {"startLine": 1},
+                        }
+                    }
+                ],
+            }
+            report = root / "report.sarif"
+
+            def write():
+                report.write_text(
+                    json.dumps({"version": "2.1.0", "runs": [{"results": [result]}]})
+                )
+
+            write()
+            with self.assertRaises(ValueError):
+                security.sarif_gate(root, workspace=root)
+            security.sarif_gate(root, json.dumps([ref]), root)
+            self.assertEqual(
+                json.loads(report.read_text())["runs"][0]["results"], [result]
+            )
+            for source in (
+                "uses: external/actions@v1",
+                "uses: " + ref.replace("@v1", "@master"),
+            ):
+                workflow.write_text(source + "\n")
+                with self.assertRaises(ValueError):
+                    security.sarif_gate(root, json.dumps([ref]), root)
+            workflow.write_text("uses: " + ref + "\n")
+            result["ruleId"] = "actions/code-injection/critical"
+            write()
+            with self.assertRaises(ValueError):
+                security.sarif_gate(root, json.dumps([ref]), root)
+            result["ruleId"] = "actions/unpinned-tag"
+            result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] = (
+                "../outside.yml"
+            )
+            write()
+            with self.assertRaises(ValueError):
+                security.sarif_gate(root, json.dumps([ref]), root)
+            with self.assertRaises(ValueError):
+                security.sarif_gate(root, '["abhi1693/*"]', root)
+
     def test_failed_audit_writes_report_and_does_not_succeed(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "npm.json"

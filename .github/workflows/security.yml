@@ -87,6 +87,11 @@ on:
         required: false
         type: string
         default: '[]'
+      codeql-trusted-workflows:
+        description: JSON exact reusable workflow major refs accepted for CodeQL unpinned-tag warnings only.
+        required: false
+        type: string
+        default: '[]'
       codeql-config:
         description: Optional CodeQL configuration path.
         required: false
@@ -269,6 +274,7 @@ jobs:
         env:
           TOOLS: ${{ steps.tools.outputs.path }}
           SARIF_DIRECTORY: ${{ runner.temp }}/codeql
+          TRUSTED_WORKFLOWS: ${{ inputs.codeql-trusted-workflows }}
       - name: Upload security report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
