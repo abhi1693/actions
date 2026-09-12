@@ -91,6 +91,10 @@ first release, use the concrete reviewed shared-workflow SHA for staged migratio
 | `timeout-minutes` | `20` | Maximum duration. |
 | `test-results-path` | `` | Test report path relative to the repository root. |
 | `test-results-name` | `node-test-results` | Unique report artifact name per caller/matrix job. |
+| `database-env-name` | `CI_DATABASE_URL` | Application variable to receive the disposable PostgreSQL URL. |
+| `database-url-scheme` | `postgresql` | Database URL scheme, such as postgresql+asyncpg. |
+| `prepare-script` | `` | Optional repository Bash script run before dependency installation, e.g. test environment generation. |
+
 
 ## `python-uv-tests.yml`
 
@@ -111,6 +115,9 @@ first release, use the concrete reviewed shared-workflow SHA for staged migratio
 | `postgres-image` | `` | Optional PostgreSQL service image; exports CI_DATABASE_URL. |
 | `validation-command` | `` | Optional project validation after tests, such as generated OpenAPI checks. |
 | `node-version` | `` | Optional Node setup for projects whose Python checks use npm scripts. |
+| `database-env-name` | `CI_DATABASE_URL` | Application variable to receive the disposable PostgreSQL URL. |
+| `database-url-scheme` | `postgresql` | Database URL scheme, such as postgresql+asyncpg. |
+
 
 ## `security.yml`
 
@@ -138,6 +145,7 @@ first release, use the concrete reviewed shared-workflow SHA for staged migratio
 | `artifact-prefix` | `security` | Unique artifact prefix per call. |
 | `timeout-minutes` | `30` | Maximum duration per security job. |
 
+
 ## `container-images.yml`
 
 | Input | Default | Meaning |
@@ -159,6 +167,8 @@ first release, use the concrete reviewed shared-workflow SHA for staged migratio
 | `source-artifact-path` | `.` | Download source artifact here relative to workspace. |
 | `latest` | `true` | Advance latest for stable releases. |
 | `release-aliases` | `[]` | JSON optional moving major/minor release aliases. |
+| `release-tag-prefix` | `` | Optional v prefix for full release image tags. |
+
 
 ## `docker-build-push.yml`
 
@@ -195,4 +205,3 @@ first release, use the concrete reviewed shared-workflow SHA for staged migratio
 | `digest-artifact-name` | `` | Optional unique component result artifact name for downstream promotion. |
 | `environment` | `` | Optional GitHub environment for build secrets/protections. |
 | `build-env-secret-id` | `env` | BuildKit secret id for the build-env secret. |
-
