@@ -87,6 +87,11 @@ on:
         required: false
         type: string
         default: postgresql
+      postgres-database:
+        description: Disposable PostgreSQL database name, including an application-required test suffix.
+        required: false
+        type: string
+        default: ci
     secrets:
       project-env:
         description: Optional JSON application secrets.
@@ -121,11 +126,13 @@ jobs:
           DATABASE_PORT: ${{ job.services.postgres.ports['5432'] }}
           DATABASE_ENV_NAME: ${{ inputs.database-env-name }}
           DATABASE_SCHEME: ${{ inputs.database-url-scheme }}
+          DATABASE_NAME: ${{ inputs.postgres-database }}
         run: |-
           [[ "$DATABASE_ENV_NAME" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]
           case "$DATABASE_ENV_NAME" in GITHUB_*|RUNNER_*|ACTIONS_*|PATH|HOME|BASH_ENV|NODE_OPTIONS|PYTHONPATH|LD_*) exit 1 ;; esac
           [[ "$DATABASE_SCHEME" =~ ^postgres(ql)?(\+[a-z0-9]+)?$ ]]
-          url="$DATABASE_SCHEME://ci:ci@127.0.0.1:$DATABASE_PORT/ci"
+          [[ "$DATABASE_NAME" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]
+          url="$DATABASE_SCHEME://ci:ci@127.0.0.1:$DATABASE_PORT/$DATABASE_NAME"
           echo "CI_DATABASE_URL=$url" >> "$GITHUB_ENV"
           echo "$DATABASE_ENV_NAME=$url" >> "$GITHUB_ENV"
       - name: Setup Node
@@ -166,9 +173,9 @@ jobs:
       postgres:
         image: ${{ inputs.postgres-image }}
         env:
-          POSTGRES_DB: ci
+          POSTGRES_DB: ${{ inputs.postgres-database }}
           POSTGRES_USER: ci
           POSTGRES_PASSWORD: ci
         ports:
           - 5432/tcp
-        options: --health-cmd "pg_isready -U ci -d ci" --health-interval 5s --health-timeout 5s --health-retries 10
+        options: --health-cmd "pg_isready -U ci" --health-interval 5s --health-timeout 5s --health-retries 10

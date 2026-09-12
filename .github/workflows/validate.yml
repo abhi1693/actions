@@ -42,6 +42,7 @@ jobs:
       test-results-path: tests/fixtures/node/reports/*.xml
       test-results-name: fixture-node
       postgres-image: postgres:17-alpine
+      postgres-database: fixture_test
   python:
     uses: ./.github/workflows/python-uv-tests.yml
     with:

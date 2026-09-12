@@ -94,6 +94,7 @@ first release, use the concrete reviewed shared-workflow SHA for staged migratio
 | `database-env-name` | `CI_DATABASE_URL` | Application variable to receive the disposable PostgreSQL URL. |
 | `database-url-scheme` | `postgresql` | Database URL scheme, such as postgresql+asyncpg. |
 | `prepare-script` | `` | Optional repository Bash script run before dependency installation, e.g. test environment generation. |
+| `postgres-database` | `ci` | Disposable PostgreSQL database name, including an application-required test suffix. |
 
 
 ## `python-uv-tests.yml`
@@ -117,6 +118,7 @@ first release, use the concrete reviewed shared-workflow SHA for staged migratio
 | `node-version` | `` | Optional Node setup for projects whose Python checks use npm scripts. |
 | `database-env-name` | `CI_DATABASE_URL` | Application variable to receive the disposable PostgreSQL URL. |
 | `database-url-scheme` | `postgresql` | Database URL scheme, such as postgresql+asyncpg. |
+| `postgres-database` | `ci` | Disposable PostgreSQL database name, including an application-required test suffix. |
 
 
 ## `security.yml`
@@ -144,6 +146,7 @@ first release, use the concrete reviewed shared-workflow SHA for staged migratio
 | `codeql-build-mode` | `none` | CodeQL build mode for supported languages. |
 | `artifact-prefix` | `security` | Unique artifact prefix per call. |
 | `timeout-minutes` | `30` | Maximum duration per security job. |
+| `secret-scan-scope` | `history` | history scans all commits; event scans PR/push commits and all history for other events. |
 
 
 ## `container-images.yml`

@@ -37,6 +37,21 @@ def working_directory(path):
 
 
 class ProjectContracts(unittest.TestCase):
+    def test_secret_scan_event_range_and_invalid_sha(self):
+        before, after = "a" * 40, "b" * 40
+        event = {"before": before, "after": after}
+        self.assertEqual(
+            security.secret_log_options("event", "push", event),
+            ["--log-opts", f"{before}..{after}"],
+        )
+        self.assertEqual(security.secret_log_options("history", "push", event), [])
+        self.assertEqual(security.secret_log_options("event", "schedule", {}), [])
+        event["before"] = "0" * 40
+        self.assertEqual(security.secret_log_options("event", "push", event), [])
+        event["after"] = "--all"
+        with self.assertRaises(ValueError):
+            security.secret_log_options("event", "push", event)
+
     def test_reserved_environment_rejected(self):
         for name in (
             "GITHUB_TOKEN",

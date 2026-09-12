@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -38,6 +39,53 @@ def sarif_gate(directory):
             findings += len(results)
     if findings:
         raise ValueError(f"CodeQL reported {findings} finding(s)")
+
+
+def secret_log_options(scope, event_name, event):
+    if scope not in ("history", "event"):
+        raise ValueError("Secret scan scope must be history or event")
+    if scope == "history" or event_name not in ("push", "pull_request"):
+        return []
+    if event_name == "pull_request":
+        before, after = (
+            event["pull_request"]["base"]["sha"],
+            event["pull_request"]["head"]["sha"],
+        )
+    else:
+        before, after = event["before"], event["after"]
+    for sha in (before, after):
+        if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
+            raise ValueError("Invalid event commit SHA")
+    if before == "0" * 40:
+        return []
+    return ["--log-opts", f"{before}..{after}"]
+
+
+def secret_scan():
+    report = Path(os.environ["REPORTS"]) / "gitleaks.json"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    command = [
+        "go",
+        "run",
+        "github.com/zricethezav/gitleaks/v8@v8.30.1",
+        "git",
+        "--redact",
+        "--no-banner",
+        "--report-format",
+        "json",
+        "--report-path",
+        str(report),
+    ]
+    if os.environ.get("CONFIG"):
+        command.extend(["--config", os.environ["CONFIG"]])
+    command.extend(
+        secret_log_options(
+            os.environ["SCAN_SCOPE"],
+            os.environ["GITHUB_EVENT_NAME"],
+            json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text()),
+        )
+    )
+    subprocess.run([*command, "."], check=True)
 
 
 def npm_audit():
@@ -88,6 +136,7 @@ def python_audit():
 
 if __name__ == "__main__":
     {
+        "secrets": secret_scan,
         "npm": npm_audit,
         "python": python_audit,
         "sarif": lambda: sarif_gate(os.environ["SARIF_DIRECTORY"]),
