@@ -107,8 +107,6 @@ on:
         required: false
         type: number
         default: 30
-permissions:
-  contents: read
 defaults:
   run:
     shell: bash
@@ -141,6 +139,8 @@ jobs:
           path: ${{ runner.temp }}/security-reports/gitleaks.json
           if-no-files-found: error
           retention-days: 14
+    permissions:
+      contents: read
   workflows:
     if: inputs.workflow-lint
     runs-on: ${{ inputs.runs-on }}
@@ -155,6 +155,8 @@ jobs:
         run: |-
           go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 \
             -ignore 'specifying action "\$/.github/actions/workflow-tools" in invalid format because ref is missing' -color
+    permissions:
+      contents: read
   npm:
     if: inputs.npm-audit
     runs-on: ${{ inputs.runs-on }}
@@ -189,6 +191,8 @@ jobs:
           path: ${{ runner.temp }}/security-reports/npm.json
           if-no-files-found: error
           retention-days: 14
+    permissions:
+      contents: read
   python:
     if: inputs.python-audit
     runs-on: ${{ inputs.runs-on }}
@@ -228,6 +232,8 @@ jobs:
           path: ${{ runner.temp }}/security-reports/python.json
           if-no-files-found: error
           retention-days: 14
+    permissions:
+      contents: read
   codeql:
     if: inputs.codeql-languages != '[]'
     runs-on: ${{ inputs.runs-on }}
@@ -266,9 +272,6 @@ jobs:
           path: ${{ runner.temp }}/codeql
           if-no-files-found: error
           retention-days: 14
-    permissions:
-      contents: read
-      security-events: write
     strategy:
       fail-fast: false
       matrix:
