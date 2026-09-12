@@ -87,11 +87,6 @@ on:
         required: false
         type: string
         default: '[]'
-      release-tag-prefix:
-        description: Optional v prefix for full release image tags.
-        type: string
-        required: false
-        default: ''
     secrets:
       github-token:
         description: Optional GHCR token override.
@@ -137,7 +132,6 @@ jobs:
           ARM64_RUNNER: ${{ inputs.arm64-runner }}
           LATEST: ${{ inputs.latest }}
           RELEASE_ALIASES: ${{ inputs.release-aliases }}
-          RELEASE_TAG_PREFIX: ${{ inputs.release-tag-prefix }}
         run: python3 "$TOOLS/images.py" plan
       - name: Upload selected image plan
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

@@ -241,6 +241,67 @@ class ImagePlanning(unittest.TestCase):
 
 
 class ImagePromotion(unittest.TestCase):
+    def test_docker_metadata_tags_drop_only_full_version_prefixes(self):
+        self.assertEqual(
+            images.docker_tags(
+                "localhost:5000/app:v1.2.3\nlocalhost:5000/app:1.2.3\n"
+                "localhost:5000/app:v1.2.3-rc.1\nlocalhost:5000/app:latest\n"
+                "localhost:5000/app:vendor-build"
+            ),
+            [
+                "localhost:5000/app:1.2.3",
+                "localhost:5000/app:1.2.3-rc.1",
+                "localhost:5000/app:latest",
+                "localhost:5000/app:vendor-build",
+            ],
+        )
+        for invalid in ("", "ghcr.io/owner/app", "ghcr.io/owner/app:v1.2.3;bad"):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                images.docker_tags(invalid)
+
+    def test_release_plan_has_unprefixed_deduplicated_tags(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "Dockerfile").write_text("FROM scratch\n")
+            (root / "images.json").write_text(
+                json.dumps(
+                    {
+                        "schema-version": 1,
+                        "images": [{"id": "app", "extra-tags": ["v1.2.3", "1.2.3"]}],
+                    }
+                )
+            )
+            (root / "event.json").write_text('{"release":{"tag_name":"v1.2.3"}}')
+            env = {
+                "GITHUB_WORKSPACE": tmp,
+                "MANIFEST": "images.json",
+                "GITHUB_EVENT_PATH": str(root / "event.json"),
+                "GITHUB_REPOSITORY": "owner/app",
+                "PUBLISH": "true",
+                "TRUSTED_BRANCHES": '["master"]',
+                "VERSION": "",
+                "VERSION_FILE": "",
+                "GITHUB_REF_TYPE": "tag",
+                "GITHUB_REF_NAME": "v1.2.3",
+                "GITHUB_EVENT_NAME": "release",
+                "GITHUB_ACTOR": "owner",
+                "ARTIFACT_SCOPE": "images",
+                "GITHUB_SHA": "a" * 40,
+                "GITHUB_RUN_ID": "42",
+                "GITHUB_RUN_ATTEMPT": "1",
+                "RUNNER_TEMP": tmp,
+                "GITHUB_OUTPUT": str(root / "output"),
+                "AMD64_RUNNER": "ubuntu-24.04",
+                "ARM64_RUNNER": "ubuntu-24.04-arm",
+                "LATEST": "true",
+                "RELEASE_ALIASES": "[]",
+            }
+            with patch.dict(os.environ, env, clear=True):
+                images.plan()
+            plan = json.loads((root / "image-plan-images.json").read_text())
+            self.assertEqual(plan["version"], "1.2.3")
+            self.assertEqual(plan["images"][0]["final-tags"], ["1.2.3", "latest"])
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

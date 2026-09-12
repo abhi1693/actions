@@ -23,6 +23,11 @@ repository eligibility and `security-events: write`, and fails on reported findi
 Use `none` or `autobuild` build modes; projects needing a custom manual CodeQL build
 should retain their own job. Exceptions belong in repository scanner configuration.
 
+Release image tags always omit the leading `v`: GitHub release `v1.2.3` produces
+image tag `1.2.3`. This also applies to raw/manual Docker metadata tags and manifest
+`extra-tags`. Prereleases retain their suffix (for example, `1.2.3-rc.1`); moving
+aliases such as `latest` remain available. Git release tag names are unchanged.
+
 ## Image manifests
 
 `container-images.yml` reads a JSON file with `schema-version: 1`, `images`, and optional
@@ -170,7 +175,6 @@ first release, use the concrete reviewed shared-workflow SHA for staged migratio
 | `source-artifact-path` | `.` | Download source artifact here relative to workspace. |
 | `latest` | `true` | Advance latest for stable releases. |
 | `release-aliases` | `[]` | JSON optional moving major/minor release aliases. |
-| `release-tag-prefix` | `` | Optional v prefix for full release image tags. |
 
 
 ## `docker-build-push.yml`

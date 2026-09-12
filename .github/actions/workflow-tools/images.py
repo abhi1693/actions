@@ -6,6 +6,7 @@ import json
 import os
 import re
 import subprocess
+import uuid
 from pathlib import Path
 
 ID = re.compile(r"[a-z0-9][a-z0-9-]{0,47}")
@@ -291,11 +292,6 @@ def plan():
             ".".join(version.split(".")[: 1 if alias == "major" else 2])
             for alias in aliases
         )
-    prefix = os.environ.get("RELEASE_TAG_PREFIX", "")
-    if prefix not in ("", "v"):
-        raise ValueError("release-tag-prefix must be empty or v")
-    if mode == "release" and prefix:
-        tags = [prefix + tag if tag == version else tag for tag in tags]
     changed = None
     if mode != "release" and os.environ["CHANGED_ONLY"] == "true":
         base = event.get("pull_request", {}).get("base", {}).get("sha") or event.get(
@@ -343,7 +339,8 @@ def plan():
         item["final-tags"] = (
             list(
                 dict.fromkeys(
-                    [
+                    image_tag(tag)
+                    for tag in [
                         *tags,
                         *item["extra-tags"],
                         *([revision] if mode == "branch" else []),
@@ -372,6 +369,32 @@ def plan():
     output("selected", "true" if selected else "false")
     output("candidate", candidate)
     output("version", version)
+
+
+def image_tag(tag):
+    """Release image tags are SemVer without a leading v."""
+    if tag.startswith("v") and SEMVER.fullmatch(tag[1:]):
+        return tag[1:]
+    return tag
+
+
+def docker_tags(raw):
+    result = []
+    for reference in raw.splitlines():
+        image, separator, tag = reference.strip().rpartition(":")
+        if not separator or not image or not TAG.fullmatch(tag):
+            raise ValueError("Expected a tagged Docker image reference")
+        result.append(f"{image}:{image_tag(tag)}")
+    if not result:
+        raise ValueError("No image tags were generated")
+    return list(dict.fromkeys(result))
+
+
+def export_docker_tags():
+    tags = docker_tags(os.environ["IMAGE_TAGS"])
+    delimiter = uuid.uuid4().hex
+    with open(os.environ["GITHUB_OUTPUT"], "a") as stream:
+        stream.write(f"tags<<{delimiter}\n" + "\n".join(tags) + f"\n{delimiter}\n")
 
 
 def normalized_platform(platform):
@@ -525,10 +548,14 @@ def promote(plan, directory, destination):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("operation", choices=["plan", "record", "promote"])
+    parser.add_argument(
+        "operation", choices=["plan", "record", "promote", "normalize-tags"]
+    )
     args = parser.parse_args()
     if args.operation == "plan":
         plan()
+    elif args.operation == "normalize-tags":
+        export_docker_tags()
     elif args.operation == "record":
         record()
     else:

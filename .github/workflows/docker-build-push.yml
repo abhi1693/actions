@@ -188,7 +188,7 @@ jobs:
           ${{ fromJSON(inputs.matrix ||
               format('[{{"runner":{0},"platform":{1}}}]', toJSON(inputs.runs-on), toJSON(inputs.platforms))) }}
     outputs:
-      tags: ${{ steps.meta.outputs.tags }}
+      tags: ${{ steps.normalized-tags.outputs.tags }}
       labels: ${{ steps.meta.outputs.labels }}
       digest: ${{ steps.build.outputs.digest }}
     env:
@@ -251,6 +251,12 @@ jobs:
             ${{ inputs.matrix != '' &&
                 format('type=raw,value=candidate-{0}-{1}-{2}-{3}', github.sha, github.run_id, github.run_attempt, steps.platform.outputs.key) || inputs.tags }}
           labels: ${{ inputs.labels }}
+      - name: Normalize release image tags
+        id: normalized-tags
+        env:
+          TOOLS: ${{ steps.tools.outputs.path }}
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: python3 "$TOOLS/images.py" normalize-tags
       - name: Download build secret artifact
         if: inputs.build-secret-artifact != ''
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -316,7 +322,7 @@ jobs:
           push: ${{ inputs.push }}
           build-args: ${{ inputs.build-args }}
           secret-files: ${{ steps.secret-files.outputs.value }}
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: ${{ steps.normalized-tags.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: ${{ steps.cache.outputs.from }}
           cache-to: ${{ steps.cache.outputs.to }}
@@ -329,7 +335,7 @@ jobs:
         env:
           IMAGE_NAME: ${{ inputs.image }}
           DIGEST: ${{ steps.build.outputs.digest }}
-          TAGS: ${{ steps.meta.outputs.tags }}
+          TAGS: ${{ steps.normalized-tags.outputs.tags }}
           PLATFORM: ${{ matrix.platform }}
           PUSH: ${{ inputs.push }}
         run: |-
@@ -435,7 +441,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
-      tags: ${{ steps.meta.outputs.tags }}
+      tags: ${{ steps.normalized-tags.outputs.tags }}
       labels: ${{ steps.meta.outputs.labels }}
       digest: ${{ steps.index.outputs.digest }}
     env:
@@ -466,11 +472,17 @@ jobs:
           tags: ${{ inputs.tags }}
           labels: ${{ inputs.labels }}
           flavor: ${{ inputs.flavor }}
+      - name: Normalize release image tags
+        id: normalized-tags
+        env:
+          TOOLS: ${{ steps.tools.outputs.path }}
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: python3 "$TOOLS/images.py" normalize-tags
       - name: Assemble and verify OCI index
         id: index
         env:
           IMAGE: ${{ inputs.image }}
-          TAGS: ${{ steps.meta.outputs.tags }}
+          TAGS: ${{ steps.normalized-tags.outputs.tags }}
           DIGEST_DIR: ${{ runner.temp }}/platform-digests
           BUILD_MATRIX: ${{ inputs.matrix }}
         run: |

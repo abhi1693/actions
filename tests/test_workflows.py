@@ -12,6 +12,31 @@ def workflow(name):
 
 
 class WorkflowInterfaces(unittest.TestCase):
+    def test_builds_and_indexes_consume_normalized_image_tags(self):
+        for job in workflow("docker-build-push.yml")["jobs"].values():
+            self.assertEqual(
+                job["outputs"]["tags"], "${{ steps.normalized-tags.outputs.tags }}"
+            )
+            steps = job["steps"]
+            normalized = next(s for s in steps if s.get("id") == "normalized-tags")
+            self.assertEqual(
+                normalized["env"]["IMAGE_TAGS"], "${{ steps.meta.outputs.tags }}"
+            )
+            for step in steps:
+                if step.get("id") == "build":
+                    self.assertEqual(
+                        step["with"]["tags"],
+                        "${{ steps.normalized-tags.outputs.tags }}",
+                    )
+                if step.get("id") in ("runtime", "index"):
+                    self.assertEqual(
+                        step["env"]["TAGS"], "${{ steps.normalized-tags.outputs.tags }}"
+                    )
+        self.assertNotIn(
+            "release-tag-prefix",
+            workflow("container-images.yml")[True]["workflow_call"]["inputs"],
+        )
+
     def test_existing_inputs_defaults_outputs_and_secrets_remain_compatible(self):
         legacy = json.loads(
             (ROOT / "tests/contracts/legacy-workflows.json").read_text()
