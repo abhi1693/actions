@@ -9,8 +9,8 @@ Local checks:
 
 ```sh
 uv run --with PyYAML==6.0.3 python -m unittest discover -s tests -v
-uvx ruff==0.16.7 check --isolated --select E4,E7,E9,F,I .github/actions/workflow-tools tests
-uvx ruff==0.16.7 format --isolated --check .github/actions/workflow-tools tests
+uvx ruff==0.17.1 check --isolated --select E4,E7,E9,F,I .github/actions/workflow-tools tests
+uvx ruff==0.17.1 format --isolated --check .github/actions/workflow-tools tests
 uv run --with PyYAML==6.0.3 python tests/run_smoke.py
 ```
 
