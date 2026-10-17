@@ -47,6 +47,43 @@ def environment(public, private):
     return result
 
 
+def prepare_secret_masks():
+    """Send normalized mask values through a private, exclusive runner IPC file."""
+    public = os.getenv("PROJECT_ENV", "{}")
+    private = os.getenv("PROJECT_SECRETS", "{}")
+    environment(public, private)
+    values = environment("{}", private)
+    destination = Path(os.environ["PROJECT_MASK_FILE"])
+    root = Path(os.environ["RUNNER_TEMP"]).resolve()
+    parent = destination.parent
+    if (
+        not destination.is_absolute()
+        or parent.parent != root
+        or not parent.name.startswith("project-masks-")
+        or destination.name != "values.json"
+    ):
+        raise ValueError("Invalid private mask transport directory")
+    parent_descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        info = os.fstat(parent_descriptor)
+        if info.st_mode & 0o777 != 0o700 or info.st_uid != os.getuid():
+            raise ValueError("Invalid private mask transport permissions")
+        data = json.dumps([value for value in values.values() if value])
+        if len(data.encode()) > 1024 * 1024:
+            raise ValueError("Private mask transport is too large")
+        descriptor = os.open(
+            destination.name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o600,
+            dir_fd=parent_descriptor,
+        )
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w") as stream:
+            stream.write(data)
+    finally:
+        os.close(parent_descriptor)
+
+
 def export_environment():
     public, private = os.getenv("PROJECT_ENV", "{}"), os.getenv("PROJECT_SECRETS", "{}")
     values = environment(public, private)
@@ -165,11 +202,14 @@ def run_node_stage(stage):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "operation", choices=["environment", "validate-node", "build-cache", *STAGES]
+        "operation",
+        choices=["environment", "mask-file", "validate-node", "build-cache", *STAGES],
     )
     args = parser.parse_args()
     if args.operation == "environment":
         export_environment()
+    elif args.operation == "mask-file":
+        prepare_secret_masks()
     elif args.operation == "build-cache":
         export_build_cache()
     elif args.operation == "validate-node":
