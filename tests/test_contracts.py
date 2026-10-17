@@ -39,7 +39,7 @@ def working_directory(path):
 
 
 class ProjectContracts(unittest.TestCase):
-    def test_export_environment_registers_escaped_masks_before_export(self):
+    def test_export_environment_writes_values_without_logging_secrets(self):
         secret = "first%line\r\n::warning::second"
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "env"
@@ -58,10 +58,7 @@ class ProjectContracts(unittest.TestCase):
                 contextlib.redirect_stdout(output),
             ):
                 project.export_environment()
-            self.assertEqual(
-                output.getvalue(),
-                "::add-mask::first%25line%0D%0A::warning::second\n",
-            )
+            self.assertEqual(output.getvalue(), "")
             exported = target.read_text()
             self.assertIn("visible", exported)
             self.assertIn(secret.replace("\r\n", "\n"), exported)

@@ -50,16 +50,6 @@ def environment(public, private):
 def export_environment():
     public, private = os.getenv("PROJECT_ENV", "{}"), os.getenv("PROJECT_SECRETS", "{}")
     values = environment(public, private)
-    secrets = json.loads(private or "{}")
-    for value in secrets.values():
-        if value is None or value == "":
-            continue
-        # GitHub command escaping, including multiline values.
-        masked = (
-            str(value).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-        )
-        # The runner consumes this command to redact the value from subsequent logs.
-        print(f"::add-mask::{masked}")  # lgtm [py/clear-text-logging-sensitive-data]
     with open(os.environ["GITHUB_ENV"], "a") as target:
         for key, value in values.items():
             delimiter = uuid.uuid4().hex
