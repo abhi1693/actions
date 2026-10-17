@@ -32,6 +32,21 @@ jobs:
           uvx ruff==0.16.7 format --isolated --check .github/actions/workflow-tools tests
       - name: Test contracts
         run: uv run --with PyYAML==6.0.3 python -m unittest discover -s tests -v
+      - name: Test Next.js compiler cache
+        run: |-
+          mkdir -p reports/next-build-cache
+          node --test --experimental-test-coverage --test-coverage-include=next-build-cache/key.mjs \
+            --test-reporter=spec --test-reporter=lcov \
+            --test-reporter-destination=stdout --test-reporter-destination=reports/next-build-cache/lcov.info \
+            tests/next-build-cache.test.mjs
+      - name: Upload compiler cache coverage
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: next-build-cache-coverage-${{ github.run_attempt }}
+          path: reports/next-build-cache/lcov.info
+          if-no-files-found: error
+          retention-days: 14
   node:
     uses: ./.github/workflows/node-ci.yml
     with:
@@ -57,8 +72,12 @@ jobs:
       enable-cache: false
   security:
     uses: ./.github/workflows/security.yml
+    permissions:
+      contents: read
+      security-events: write
     with:
       workflow-lint: false
+      codeql-languages: '["javascript"]'
       npm-audit: true
       npm-directory: tests/fixtures/node
       python-audit: true

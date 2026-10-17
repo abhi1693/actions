@@ -42,6 +42,10 @@ Five reusable workflows cover the common delivery path. Compose them with the pr
 | [**Container Images**](.github/workflows/container-images.yml) | Component selection, native builds, runtime verification, GitHub attestations and digest-preserving promotion. |
 | [**Docker Build & Push**](.github/workflows/docker-build-push.yml) | The shared container builder, also available directly for custom metadata, build secrets and specialized callers. |
 
+Custom jobs can use the [Next.js compiler-cache action](next-build-cache) before
+their existing build commands. It supports root applications and monorepos,
+separates build profiles and compatibility inputs, and keeps production builds fresh.
+
 ## Get started
 
 Add a caller to `.github/workflows/ci.yml`. Point the standard stages at scripts already defined in your `package.json`.

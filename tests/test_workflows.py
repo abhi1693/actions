@@ -16,6 +16,37 @@ def workflow(name):
 
 
 class WorkflowInterfaces(unittest.TestCase):
+    def test_next_cache_tests_and_codeql_are_required(self):
+        validate = workflow("validate.yml")
+        jobs = validate["jobs"]
+        self.assertIn("contracts", jobs["required"]["needs"])
+        self.assertIn("security", jobs["required"]["needs"])
+        steps = jobs["contracts"]["steps"]
+        tests = next(s for s in steps if s.get("name") == "Test Next.js compiler cache")
+        self.assertNotIn("if", tests)
+        self.assertNotIn("continue-on-error", tests)
+        for argument in (
+            "--experimental-test-coverage",
+            "--test-coverage-include=next-build-cache/key.mjs",
+            "--test-reporter=lcov",
+            "tests/next-build-cache.test.mjs",
+        ):
+            self.assertIn(argument, tests["run"])
+        coverage = next(
+            s for s in steps if s.get("name") == "Upload compiler cache coverage"
+        )
+        self.assertEqual(coverage["if"], "always()")
+        self.assertEqual(coverage["with"]["if-no-files-found"], "error")
+        self.assertEqual(coverage["with"]["path"], "reports/next-build-cache/lcov.info")
+        self.assertEqual(jobs["security"]["with"]["codeql-languages"], '["javascript"]')
+        self.assertEqual(jobs["security"]["permissions"]["security-events"], "write")
+        self.assertEqual(
+            workflow("release-shared.yml")["jobs"]["validate"]["permissions"][
+                "security-events"
+            ],
+            "write",
+        )
+
     def test_build_cache_is_optional_and_never_skips_declared_checks(self):
         node = workflow("node-ci.yml")
         inputs = node[True]["workflow_call"]["inputs"]
@@ -175,7 +206,10 @@ class WorkflowInterfaces(unittest.TestCase):
                     self.assertEqual(result.returncode == 0, success, result.stderr)
 
     def test_internal_references_exist_and_external_actions_are_pinned(self):
-        for path in (ROOT / ".github").rglob("*.yml"):
+        for path in [
+            *(ROOT / ".github").rglob("*.yml"),
+            ROOT / "next-build-cache/action.yml",
+        ]:
             data = yaml.safe_load(path.read_text())
 
             def visit(value):
