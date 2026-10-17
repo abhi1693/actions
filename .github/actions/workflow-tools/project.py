@@ -1,6 +1,7 @@
 """Small, fixed CI contracts; caller values are data, never shell programs."""
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -83,6 +84,59 @@ def node_stages(checks, scripts):
     return [(stage, mapping[stage]) for stage in STAGES if stage in mapping]
 
 
+def node_build_cache(paths, scope, lock_hash, node, revision, public):
+    """Restore compiler work only within the same toolchain and build profile."""
+    paths = [path.strip() for path in paths.splitlines() if path.strip()]
+    scope = scope.strip()
+    if not paths and not scope:
+        return None
+    if not paths or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}", scope):
+        raise ValueError(
+            "Build cache paths and a safe app/profile scope must be set together"
+        )
+    if not re.fullmatch(r"[a-f0-9]{64}", lock_hash):
+        raise ValueError("Build caching requires a matching cache-dependency-path file")
+    if not re.fullmatch(r"[a-f0-9]{40}", revision):
+        raise ValueError("Build caching requires the source commit SHA")
+    compatibility = {
+        "paths": paths,
+        "scope": scope,
+        "lock_hash": lock_hash,
+        "node": node,
+        "project_env": environment(public, "{}"),
+    }
+    digest = hashlib.sha256(
+        json.dumps(compatibility, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    prefix = f"node-build-v1-{node['platform']}-{node['arch']}-{node['version']}-{scope}-{digest}-"
+    return {"key": prefix + revision, "restore-prefix": prefix}
+
+
+def export_build_cache():
+    node = json.loads(
+        subprocess.check_output(
+            [
+                "node",
+                "-p",
+                "JSON.stringify({version:process.version,platform:process.platform,arch:process.arch})",
+            ],
+            text=True,
+        )
+    )
+    values = node_build_cache(
+        os.environ["BUILD_CACHE_PATHS"],
+        os.environ["BUILD_CACHE_SCOPE"],
+        os.environ["BUILD_CACHE_LOCK_HASH"],
+        node,
+        os.environ["GITHUB_SHA"],
+        os.getenv("PROJECT_ENV", "{}"),
+    )
+    if values:
+        with open(os.environ["GITHUB_OUTPUT"], "a") as target:
+            for key, value in values.items():
+                target.write(f"{key}={value}\n")
+
+
 def check_generated(paths):
     paths = json.loads(paths)
     if not isinstance(paths, list) or not paths:
@@ -119,10 +173,14 @@ def run_node_stage(stage):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("operation", choices=["environment", "validate-node", *STAGES])
+    parser.add_argument(
+        "operation", choices=["environment", "validate-node", "build-cache", *STAGES]
+    )
     args = parser.parse_args()
     if args.operation == "environment":
         export_environment()
+    elif args.operation == "build-cache":
+        export_build_cache()
     elif args.operation == "validate-node":
         mapping = node_stages(os.environ["CHECKS"], os.environ["SCRIPTS"])
         package = json.loads(Path("package.json").read_text())

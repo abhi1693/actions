@@ -109,6 +109,8 @@ when upgrades must be explicit.
 | `generated-paths` | `[]` | JSON paths checked for tracked and untracked changes after generation. |
 | `ignore-scripts` | `false` | Disable npm install lifecycle scripts. |
 | `enable-cache` | `true` | Enable npm download caching. |
+| `build-cache-paths` | `` | Optional newline-separated build cache paths relative to the repository root. |
+| `build-cache-scope` | `` | App and build-profile namespace; required when build-cache-paths is set. |
 | `project-env` | `{}` | JSON object of non-secret application environment variables. |
 | `postgres-image` | `` | Optional PostgreSQL service image. Exports CI_DATABASE_URL. |
 | `python-version` | `` | Optional Python setup for API generation; empty skips Python/uv. |
@@ -124,6 +126,37 @@ when upgrades must be explicit.
 | `database-url-scheme` | `postgresql` | Database URL scheme, such as postgresql+asyncpg. |
 | `prepare-script` | `` | Optional repository Bash script run before dependency installation, e.g. test environment generation. |
 | `postgres-database` | `ci` | Disposable PostgreSQL database name, including an application-required test suffix. |
+
+Build caches are opt-in and separate from npm downloads. Set both inputs to cache
+compiler work, including when a test script builds the application itself:
+
+```yaml
+with:
+  working-directory: apps/web
+  install-directory: .
+  cache-dependency-path: package-lock.json
+  build-cache-paths: apps/web/.next/cache/turbopack
+  build-cache-scope: web-production
+```
+
+Paths resolve from the repository root even when npm scripts run in a workspace.
+For Next.js, cache only compiler subdirectories such as `turbopack`, `webpack` or
+`swc` that the application actually uses. Exclude runtime `fetch-cache`, image
+caches, complete `.next` output, reports, source maps and credentials.
+
+Keys include the actual Node version, operating system, architecture, declared
+paths, lockfile content hash, explicit scope and public `project-env` values. The
+source commit identifies each saved entry; restores can reuse older entries only
+within that same compatibility boundary. Use separate scopes for each app and
+build profile (for example, `web-production` and `web-dast`), and change the scope
+when an incompatible configuration requires a clean cache. Tool-specific source
+and configuration invalidation remains the compiler's responsibility. Secrets are
+never included in cache keys. The lockfile hash is evaluated inside the called
+workflow; GitHub does not allow caller `hashFiles()` expressions in job-level `with`.
+
+Every selected stage still runs after a cache hit. A first cold run can legitimately
+miss; the cache is saved after a successful job for later runs. Callers that leave
+both inputs empty retain the existing behavior and need no build-cache setup.
 
 
 ## `python-ci.yml`
