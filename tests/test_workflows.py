@@ -38,7 +38,9 @@ class WorkflowInterfaces(unittest.TestCase):
         self.assertEqual(coverage["if"], "always()")
         self.assertEqual(coverage["with"]["if-no-files-found"], "error")
         self.assertEqual(coverage["with"]["path"], "reports/next-build-cache/lcov.info")
-        self.assertEqual(jobs["security"]["with"]["codeql-languages"], '["javascript"]')
+        self.assertEqual(
+            jobs["security"]["with"]["codeql-languages"], '["javascript","python"]'
+        )
         self.assertEqual(jobs["security"]["permissions"]["security-events"], "write")
         self.assertEqual(
             workflow("release-shared.yml")["jobs"]["validate"]["permissions"][

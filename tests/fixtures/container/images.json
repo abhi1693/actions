@@ -5,6 +5,8 @@
     "context": "tests/fixtures/container",
     "file": "tests/fixtures/container/Dockerfile",
     "platforms": ["linux/amd64"],
+    "compiler-cache-target": "/fixture/.next/cache",
+    "compiler-cache-key-files": ["tests/fixtures/node/package-lock.json"],
     "smoke-script": "tests/fixtures/container/smoke.sh"
   }]
 }

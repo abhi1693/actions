@@ -50,15 +50,6 @@ def environment(public, private):
 def export_environment():
     public, private = os.getenv("PROJECT_ENV", "{}"), os.getenv("PROJECT_SECRETS", "{}")
     values = environment(public, private)
-    secrets = json.loads(private or "{}")
-    for value in secrets.values():
-        if value is None or value == "":
-            continue
-        # GitHub command escaping, including multiline values.
-        masked = (
-            str(value).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-        )
-        print(f"::add-mask::{masked}")
     with open(os.environ["GITHUB_ENV"], "a") as target:
         for key, value in values.items():
             delimiter = uuid.uuid4().hex
