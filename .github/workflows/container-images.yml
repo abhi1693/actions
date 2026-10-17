@@ -160,6 +160,8 @@ jobs:
       target: ${{ matrix.target }}
       matrix: ${{ matrix.matrix }}
       cache-scope: ${{ matrix.cache-scope }}
+      compiler-cache-target: ${{ matrix.compiler-cache-target || '' }}
+      compiler-cache-key-files: ${{ matrix.compiler-cache-key-files || '[]' }}
       tags: type=raw,value=${{ needs.plan.outputs.candidate }}
       flavor: latest=false
       labels: ${{ matrix.labels }}

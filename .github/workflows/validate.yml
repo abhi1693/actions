@@ -77,7 +77,8 @@ jobs:
       security-events: write
     with:
       workflow-lint: false
-      codeql-languages: '["javascript"]'
+      codeql-languages: '["javascript","python"]'
+      codeql-config: .github/codeql.yml
       npm-audit: true
       npm-directory: tests/fixtures/node
       python-audit: true

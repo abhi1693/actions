@@ -82,6 +82,16 @@ on:
         description: Shared cache scope suffix.
         required: true
         type: string
+      compiler-cache-target:
+        description: Optional absolute Next.js .next/cache BuildKit mount target.
+        required: false
+        type: string
+        default: ''
+      compiler-cache-key-files:
+        description: JSON array of exact repository dependency/configuration files for compiler compatibility.
+        required: false
+        type: string
+        default: '[]'
       short-sha-length:
         description: DOCKER_METADATA_SHORT_SHA_LENGTH value.
         required: false
@@ -205,6 +215,7 @@ jobs:
           name: ${{ inputs.source-artifact }}
           path: ${{ inputs.source-artifact-path }}
       - name: Set up Docker Buildx
+        id: buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Login to GHCR
         if: inputs.push
@@ -281,10 +292,41 @@ jobs:
             printf 'type=gha,mode=max,scope=%s\n' "$CACHE_SCOPE"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
+      - name: Plan compiler cache
+        id: compiler-cache
+        if: inputs.compiler-cache-target != '' || inputs.compiler-cache-key-files != '[]'
+        env:
+          TOOLS: ${{ steps.tools.outputs.path }}
+          COMPILER_CACHE_TARGET: ${{ inputs.compiler-cache-target }}
+          COMPILER_CACHE_KEY_FILES: ${{ inputs.compiler-cache-key-files }}
+          IMAGE: ${{ inputs.image }}
+          CACHE_SCOPE: ${{ inputs.cache-scope }}
+          PLATFORM: ${{ matrix.platform }}
+          DOCKERFILE: ${{ inputs.file }}
+          BUILD_CONTEXT: ${{ inputs.context }}
+          BUILD_TARGET: ${{ inputs.target }}
+          BUILD_ARGS: ${{ inputs.build-args }}
+        run: python3 "$TOOLS/compiler_cache.py" plan
+      - name: Restore compiler cache payload
+        id: compiler-restore
+        if: inputs.compiler-cache-target != ''
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.compiler-cache.outputs.paths }}
+          key: ${{ steps.compiler-cache.outputs.key }}
+          restore-keys: ${{ steps.compiler-cache.outputs.restore-prefix }}
+      - name: Inject compiler cache mount
+        if: inputs.compiler-cache-target != ''
+        env:
+          TOOLS: ${{ steps.tools.outputs.path }}
+          COMPILER_CACHE_PLAN: ${{ steps.compiler-cache.outputs.plan }}
+          BUILDER: ${{ steps.buildx.outputs.name }}
+        run: python3 "$TOOLS/compiler_cache.py" inject
       - name: Build and push
         id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
+          builder: ${{ steps.buildx.outputs.name }}
           context: ${{ inputs.context }}
           file: ${{ inputs.file }}
           platforms: ${{ matrix.platform }}
@@ -368,6 +410,20 @@ jobs:
       - name: Remove build secret files
         if: always()
         run: rm -rf "$RUNNER_TEMP/docker-build-secrets"
+      - name: Extract compiler cache payload
+        id: compiler-extract
+        if: inputs.compiler-cache-target != ''
+        env:
+          TOOLS: ${{ steps.tools.outputs.path }}
+          COMPILER_CACHE_PLAN: ${{ steps.compiler-cache.outputs.plan }}
+          BUILDER: ${{ steps.buildx.outputs.name }}
+        run: python3 "$TOOLS/compiler_cache.py" extract
+      - name: Save compiler cache payload
+        if: inputs.compiler-cache-target != '' && steps.compiler-extract.outputs.nonempty == 'true' && steps.compiler-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.compiler-cache.outputs.paths }}
+          key: ${{ steps.compiler-cache.outputs.key }}
       - name: Record platform image digest
         if: inputs.push
         env:

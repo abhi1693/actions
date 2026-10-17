@@ -43,6 +43,40 @@ def relative(value, root=None):
     return value
 
 
+def compiler_cache_settings(target, files):
+    """Validate an opt-in Next.js cache mount and exact compatibility inputs."""
+    if target == "" and files == []:
+        return
+    if (
+        not isinstance(target, str)
+        or not re.fullmatch(r"/[A-Za-z0-9_./-]{1,240}", target)
+        or str(Path(target)) != target
+        or target.startswith("//")
+        or ".." in Path(target).parts
+        or not target.endswith("/.next/cache")
+    ):
+        raise ValueError(
+            "compiler-cache-target must be a normalized absolute .next/cache path"
+        )
+    if not isinstance(files, list) or not 1 <= len(files) <= 32:
+        raise ValueError(
+            "compiler-cache-key-files must contain 1..32 exact repository paths"
+        )
+    for value in files:
+        relative(value)
+        if (
+            len(value) > 500
+            or str(Path(value)) != value
+            or value == "."
+            or any(ord(c) < 32 or c in "\\*?[]" for c in value)
+        ):
+            raise ValueError(
+                "compiler-cache-key-files must be normalized, exact file paths"
+            )
+    if len(set(files)) != len(files):
+        raise ValueError("Duplicate compiler-cache-key-files")
+
+
 def descriptors(data, repository, root=None):
     if not isinstance(data, dict) or set(data) - {
         "schema-version",
@@ -87,11 +121,17 @@ def descriptors(data, repository, root=None):
         "labels",
         "extra-tags",
         "secret-id",
+        "compiler-cache-target",
+        "compiler-cache-key-files",
     }
     for raw in data["images"]:
         if not isinstance(raw, dict) or set(raw) - allowed:
             raise ValueError("Unknown image descriptor field")
         item = dict(raw)
+        compiler_cache_settings(
+            item.get("compiler-cache-target", ""),
+            item.get("compiler-cache-key-files", []),
+        )
         if not ID.fullmatch(item.get("id", "")):
             raise ValueError("Invalid component id")
         item.setdefault(
@@ -311,6 +351,10 @@ def plan():
     revision, run_id = os.environ["GITHUB_SHA"], os.environ["GITHUB_RUN_ID"]
     candidate = f"candidate-{revision}-{run_id}-{os.environ['GITHUB_RUN_ATTEMPT']}"
     for item in selected:
+        if "compiler-cache-key-files" in item:
+            item["compiler-cache-key-files"] = json.dumps(
+                item["compiler-cache-key-files"]
+            )
         item["matrix"] = json.dumps(
             [
                 {
