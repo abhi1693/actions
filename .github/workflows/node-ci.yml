@@ -57,6 +57,16 @@ on:
         required: false
         type: boolean
         default: true
+      build-cache-paths:
+        description: Optional newline-separated build cache paths relative to the repository root.
+        required: false
+        type: string
+        default: ''
+      build-cache-scope:
+        description: App and build-profile namespace; required when build-cache-paths is set.
+        required: false
+        type: string
+        default: ''
       project-env:
         description: JSON object of non-secret application environment variables.
         required: false
@@ -201,6 +211,24 @@ jobs:
           cache: ${{ inputs.enable-cache && 'npm' || '' }}
           cache-dependency-path: ${{ inputs.cache-dependency-path }}
           package-manager-cache: false
+      - name: Resolve build cache key
+        id: build-cache
+        if: inputs.build-cache-paths != '' || inputs.build-cache-scope != ''
+        working-directory: .
+        run: python3 "$TOOLS/project.py" build-cache
+        env:
+          TOOLS: ${{ steps.tools.outputs.path }}
+          BUILD_CACHE_PATHS: ${{ inputs.build-cache-paths }}
+          BUILD_CACHE_SCOPE: ${{ inputs.build-cache-scope }}
+          BUILD_CACHE_LOCK_HASH: ${{ hashFiles(inputs.cache-dependency-path) }}
+          PROJECT_ENV: ${{ inputs.project-env }}
+      - name: Restore build cache
+        if: inputs.build-cache-paths != ''
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ inputs.build-cache-paths }}
+          key: ${{ steps.build-cache.outputs.key }}
+          restore-keys: ${{ steps.build-cache.outputs.restore-prefix }}
       - name: Setup Python
         if: inputs.python-version != ''
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0

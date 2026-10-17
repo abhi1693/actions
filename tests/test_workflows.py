@@ -16,6 +16,52 @@ def workflow(name):
 
 
 class WorkflowInterfaces(unittest.TestCase):
+    def test_build_cache_is_optional_and_never_skips_declared_checks(self):
+        node = workflow("node-ci.yml")
+        inputs = node[True]["workflow_call"]["inputs"]
+        for name in ("build-cache-paths", "build-cache-scope"):
+            self.assertFalse(inputs[name]["required"])
+            self.assertEqual(inputs[name]["default"], "")
+        steps = node["jobs"]["node"]["steps"]
+        resolve = next(s for s in steps if s.get("id") == "build-cache")
+        self.assertEqual(
+            resolve["if"],
+            "inputs.build-cache-paths != '' || inputs.build-cache-scope != ''",
+        )
+        self.assertEqual(resolve["working-directory"], ".")
+        self.assertEqual(
+            resolve["env"]["BUILD_CACHE_LOCK_HASH"],
+            "${{ hashFiles(inputs.cache-dependency-path) }}",
+        )
+        cache = next(s for s in steps if s.get("name") == "Restore build cache")
+        self.assertEqual(cache["if"], "inputs.build-cache-paths != ''")
+        self.assertRegex(cache["uses"], r"^actions/cache@[a-f0-9]{40}$")
+        self.assertEqual(cache["with"]["path"], "${{ inputs.build-cache-paths }}")
+        self.assertEqual(cache["with"]["key"], "${{ steps.build-cache.outputs.key }}")
+        self.assertEqual(
+            cache["with"]["restore-keys"],
+            "${{ steps.build-cache.outputs.restore-prefix }}",
+        )
+        self.assertNotIn("continue-on-error", cache)
+        setup = next(s for s in steps if s.get("name") == "Setup Node")
+        self.assertEqual(
+            setup["with"]["cache"], "${{ inputs.enable-cache && 'npm' || '' }}"
+        )
+        self.assertEqual(node["permissions"], {"contents": "read"})
+        names = [s.get("name") for s in steps]
+        self.assertLess(
+            names.index("Setup Node"), names.index("Resolve build cache key")
+        )
+        self.assertLess(
+            names.index("Resolve build cache key"), names.index("Restore build cache")
+        )
+        for stage in ("Generate", "Lint", "Typecheck", "Test", "Build"):
+            step = next(s for s in steps if s.get("name") == stage)
+            self.assertEqual(
+                step["if"], f"contains(fromJSON(inputs.checks), '{stage.lower()}')"
+            )
+            self.assertLess(names.index("Restore build cache"), names.index(stage))
+
     def test_builds_and_indexes_consume_normalized_image_tags(self):
         for job in workflow("docker-build-push.yml")["jobs"].values():
             self.assertEqual(

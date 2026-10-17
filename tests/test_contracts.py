@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -37,6 +38,101 @@ def working_directory(path):
 
 
 class ProjectContracts(unittest.TestCase):
+    def build_cache(self, **changes):
+        values = {
+            "paths": "apps/web/.next/cache/turbopack\napps/web/.next/cache/webpack",
+            "scope": "web-production",
+            "lock_hash": "a" * 64,
+            "node": {"version": "v24.21.0", "platform": "linux", "arch": "x64"},
+            "revision": "b" * 40,
+            "public": '{"BUILD_PROFILE":"production","ENABLED":true}',
+        }
+        values.update(changes)
+        return project.node_build_cache(**values)
+
+    def test_build_cache_is_opt_in_and_rejects_incomplete_compatibility(self):
+        self.assertIsNone(self.build_cache(paths="", scope=""))
+        for values in (
+            {"paths": ""},
+            {"paths": " \n"},
+            {"scope": ""},
+            {"scope": "web\nkey=injected"},
+            {"lock_hash": ""},
+            {"lock_hash": "not-a-file-hash"},
+            {"revision": ""},
+            {"revision": "main"},
+        ):
+            with self.subTest(values=values), self.assertRaises(ValueError):
+                self.build_cache(**values)
+
+    def test_build_cache_restores_only_within_its_compatibility_boundary(self):
+        first = self.build_cache()
+        second = self.build_cache(revision="c" * 40)
+        self.assertNotEqual(first["key"], second["key"])
+        self.assertEqual(first["restore-prefix"], second["restore-prefix"])
+        self.assertTrue(first["key"].startswith(first["restore-prefix"]))
+        self.assertTrue(second["key"].startswith(first["restore-prefix"]))
+        for values in (
+            {"scope": "admin-production"},
+            {"scope": "web-dast"},
+            {"paths": "apps/admin/.next/cache/turbopack"},
+            {"lock_hash": "d" * 64},
+            {"node": {"version": "v26.0.0", "platform": "linux", "arch": "x64"}},
+            {"node": {"version": "v24.21.0", "platform": "linux", "arch": "arm64"}},
+            {"node": {"version": "v24.21.0", "platform": "darwin", "arch": "x64"}},
+            {"public": '{"BUILD_PROFILE":"test","ENABLED":true}'},
+        ):
+            with self.subTest(values=values):
+                other = self.build_cache(**values)
+                self.assertNotEqual(first["restore-prefix"], other["restore-prefix"])
+                self.assertFalse(other["key"].startswith(first["restore-prefix"]))
+        reordered = self.build_cache(
+            public='{"ENABLED":true,"BUILD_PROFILE":"production"}'
+        )
+        self.assertEqual(first, reordered)
+
+    def test_build_cache_cli_uses_actual_node_and_emits_only_opaque_safe_keys(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "output"
+            result = subprocess.run(
+                [sys.executable, str(HELPERS / "project.py"), "build-cache"],
+                env=dict(
+                    os.environ,
+                    BUILD_CACHE_PATHS="apps/web/.next/cache/turbopack",
+                    BUILD_CACHE_SCOPE="web-production",
+                    BUILD_CACHE_LOCK_HASH="a" * 64,
+                    PROJECT_ENV='{"BUILD_ENDPOINT":"https://fixture.example/private-value"}',
+                    GITHUB_SHA="b" * 40,
+                    GITHUB_OUTPUT=str(output),
+                ),
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            values = dict(
+                line.split("=", 1) for line in output.read_text().splitlines()
+            )
+            node = json.loads(
+                subprocess.check_output(
+                    [
+                        "node",
+                        "-p",
+                        "JSON.stringify({version:process.version,platform:process.platform,arch:process.arch})",
+                    ],
+                    text=True,
+                )
+            )
+            self.assertTrue(
+                values["key"].startswith(
+                    f"node-build-v1-{node['platform']}-{node['arch']}-{node['version']}-web-production-"
+                )
+            )
+            self.assertEqual(values["key"], values["restore-prefix"] + "b" * 40)
+            self.assertNotIn(
+                "private-value", output.read_text() + result.stdout + result.stderr
+            )
+            self.assertEqual(result.stdout, "")
+
     def test_secret_scan_event_range_and_invalid_sha(self):
         before, after = "a" * 40, "b" * 40
         event = {"before": before, "after": after}
