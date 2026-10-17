@@ -2,6 +2,7 @@
 
 import contextlib
 import importlib.util
+import io
 import json
 import os
 import subprocess
@@ -38,6 +39,34 @@ def working_directory(path):
 
 
 class ProjectContracts(unittest.TestCase):
+    def test_export_environment_registers_escaped_masks_before_export(self):
+        secret = "first%line\r\n::warning::second"
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "env"
+            output = io.StringIO()
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        "PROJECT_ENV": '{"PUBLIC":"visible"}',
+                        "PROJECT_SECRETS": json.dumps(
+                            {"TOKEN": secret, "EMPTY": "", "UNSET": None}
+                        ),
+                        "GITHUB_ENV": str(target),
+                    },
+                ),
+                contextlib.redirect_stdout(output),
+            ):
+                project.export_environment()
+            self.assertEqual(
+                output.getvalue(),
+                "::add-mask::first%25line%0D%0A::warning::second\n",
+            )
+            exported = target.read_text()
+            self.assertIn("visible", exported)
+            self.assertIn(secret.replace("\r\n", "\n"), exported)
+            self.assertNotIn("visible", output.getvalue())
+
     def build_cache(self, **changes):
         values = {
             "paths": "apps/web/.next/cache/turbopack\napps/web/.next/cache/webpack",

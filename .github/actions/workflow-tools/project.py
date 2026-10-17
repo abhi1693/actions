@@ -58,7 +58,8 @@ def export_environment():
         masked = (
             str(value).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
         )
-        print(f"::add-mask::{masked}")
+        # The runner consumes this command to redact the value from subsequent logs.
+        print(f"::add-mask::{masked}")  # lgtm [py/clear-text-logging-sensitive-data]
     with open(os.environ["GITHUB_ENV"], "a") as target:
         for key, value in values.items():
             delimiter = uuid.uuid4().hex
