@@ -1,0 +1,48 @@
+name: Next.js compiler cache
+description: Restore compatible compiler inputs while keeping every production build fresh.
+
+inputs:
+  app-directory:
+    description: Next.js application directory relative to the caller repository root.
+    required: false
+    default: .
+  profile:
+    description: Stable lowercase build environment name, separate from other build profiles.
+    required: true
+  dependency-path:
+    description: Required npm, pnpm, Yarn, or Bun lockfile relative to the caller repository root.
+    required: false
+    default: package-lock.json
+  configuration-paths:
+    description: Optional newline-separated extra build configuration files relative to the caller repository root. Listed files must exist.
+    required: false
+    default: ""
+
+outputs:
+  cache-hit:
+    description: Whether the exact source revision cache was restored.
+    value: ${{ steps.cache.outputs.cache-hit }}
+  key:
+    description: Cache key including runtime, dependency, configuration, and source boundaries.
+    value: ${{ steps.plan.outputs.key }}
+
+runs:
+  using: composite
+  steps:
+    - name: Identify compatible Next.js compiler cache
+      id: plan
+      shell: bash
+      env:
+        NEXT_CACHE_ACTION_PATH: ${{ github.action_path }}
+        NEXT_CACHE_APP_DIRECTORY: ${{ inputs.app-directory }}
+        NEXT_CACHE_PROFILE: ${{ inputs.profile }}
+        NEXT_CACHE_DEPENDENCY_PATH: ${{ inputs.dependency-path }}
+        NEXT_CACHE_CONFIGURATION_PATHS: ${{ inputs.configuration-paths }}
+      run: node "$NEXT_CACHE_ACTION_PATH/key.mjs"
+    - name: Restore Next.js compiler cache
+      id: cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.plan.outputs.paths }}
+        key: ${{ steps.plan.outputs.key }}
+        restore-keys: ${{ steps.plan.outputs.restore-prefix }}
