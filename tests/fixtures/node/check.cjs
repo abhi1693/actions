@@ -1,6 +1,10 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 assert.equal(process.env.CI_FIXTURE, 'node');
+if (process.env.CI_MASK_FIXTURE) {
+  assert.equal(process.env.CI_MASK_FIXTURE, 'public-node-mask-fixture');
+  console.log(`NODE_MASK_FIXTURE=${process.env.CI_MASK_FIXTURE}`);
+}
 if (process.env.CI_DATABASE_URL) {
   const database = new URL(process.env.CI_DATABASE_URL);
   assert.equal(database.hostname, '127.0.0.1');

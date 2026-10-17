@@ -6,6 +6,11 @@ from pathlib import Path
 class EnvironmentTest(unittest.TestCase):
     def test_application_environment(self):
         self.assertEqual(os.environ["CI_FIXTURE"], "python")
+        if "CI_MASK_FIXTURE" in os.environ:
+            self.assertEqual(
+                os.environ["CI_MASK_FIXTURE"], "public-python-mask-fixture"
+            )
+            print(f"PYTHON_MASK_FIXTURE={os.environ['CI_MASK_FIXTURE']}")
         if "CI_DATABASE_URL" in os.environ:
             self.assertTrue(
                 os.environ["CI_DATABASE_URL"].startswith(

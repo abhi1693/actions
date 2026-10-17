@@ -27,6 +27,25 @@ error for the exact `$/ .github/actions/workflow-tools` path (without the space)
 Contract tests separately verify that the helper exists and external actions are
 SHA-pinned. Remove this narrow exception when actionlint supports self references.
 
+## Project secret masking
+
+Node and Python jobs register every normalized private environment value through
+GitHub's official `core.setSecret` API before exporting the application environment.
+The pinned `actions/github-script` runtime supplies the SDK; helpers never print
+private values or implement their own masking/logging command.
+
+Python preserves the existing scalar contract, including arbitrary-size integers,
+`1.0`, booleans, Unicode and multiline strings. A private 0700 runner-temp directory
+and exclusive 0600 JSON file carry those exact strings to the SDK without placing
+values in command arguments or child stdout. The consumer uses a no-follow regular
+file descriptor, deletes the transport in `finally`, and reports only generic errors.
+Any preparation, masking or cleanup failure prevents environment export and later
+consumer commands. This file is ephemeral runner IPC and is never an artifact/cache.
+
+Run `node --test tests/project-masks.test.cjs` alongside the Python contracts. Before
+releasing a masking change, inspect the natural branch-push CodeQL run as well as PR
+CI: PR analysis is diff-informed and may omit unchanged findings.
+
 ## One supported implementation
 
 Maintain the current workflow contracts only. Do not add compatibility wrappers,

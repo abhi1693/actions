@@ -114,6 +114,14 @@ jobs:
       - name: Load shared helpers
         id: tools
         uses: $/.github/actions/workflow-tools
+      - name: Register project secret masks
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          TOOLS: ${{ steps.tools.outputs.path }}
+          PROJECT_ENV: ${{ inputs.project-env }}
+          PROJECT_SECRETS: ${{ secrets.project-env }}
+        with:
+          script: require(`${process.env.TOOLS}/project-masks.cjs`).registerProjectMasks(core);
       - name: Configure project environment
         run: python3 "$TOOLS/project.py" environment
         env:
