@@ -44,3 +44,13 @@ that exact merged commit, inspect the draft assets and validation, then approve
 publishing the GitHub release. Only a successful npm publish with matching archive
 bytes/provenance proves the rollout. Migrate no other plugins until this succeeds.
 Do not retry 0.0.1 through the new signer: it was prepared by the old workflow.
+
+## Package-specific file contracts
+
+Declare any additional distributable files in package.json under
+`config.release.requiredFiles`, an array of archive-relative paths. The shared
+packager checks these in addition to its standard manifest, README, license,
+export, image and private-file checks. This is useful for generated migration
+snapshots and discovered API routes that are not explicit package exports.
+The same configuration applies to release preparation and local/CI packaging
+checks; consumers need no copy of the shared validation implementation.
