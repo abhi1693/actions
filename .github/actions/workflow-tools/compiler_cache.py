@@ -14,7 +14,7 @@ from pathlib import Path
 
 from images import compiler_cache_settings, relative
 
-HELPER_IMAGE = "alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b"
+HELPER_IMAGE = "alpine:3.24@sha256:3f4d6b32e26703c6082839234f43769d5046b3ac7c910033911d1e71d8cd630a"
 DIRECTORIES = ("turbopack", "webpack", "swc")
 ENTRIES = (*DIRECTORIES, ".tsbuildinfo")
 MAX_FILES = 100_000
