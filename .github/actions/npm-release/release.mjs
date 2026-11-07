@@ -44,7 +44,8 @@ if (process.argv[2] === "source") {
   output("archive", archive)
 } else if (process.argv[2] === "draft") {
   const notes = path.resolve(process.env.NOTES_DIRECTORY, `${pkg.version}.md`)
-  assert.ok(fs.statSync(notes).isFile(), "Release notes are required")
+  const releaseNotes = fs.existsSync(notes) ? ["--notes-file", notes] : ["--generate-notes"]
+  if (fs.existsSync(notes)) assert.ok(fs.statSync(notes).isFile(), "Release notes must be a file")
   const refs = new Map(git(["ls-remote", "--tags", "origin", `refs/tags/${tag}`, `refs/tags/${tag}^{}`]).split("\n").filter(Boolean).map(line => line.split(/\s+/).reverse()))
   const target = refs.get(`refs/tags/${tag}^{}`) || refs.get(`refs/tags/${tag}`)
   assert.ok(!target || target === sha, "Existing release tag targets another commit")
@@ -58,7 +59,7 @@ if (process.argv[2] === "source") {
     assert.equal(release.targetCommitish, sha, "Cannot replace another commit's draft")
     gh(["release", "upload", tag, ...assets, "--clobber"])
   } else {
-    gh(["release", "create", tag, ...assets, "--draft", "--target", sha, "--title", tag, "--notes-file", notes])
+    gh(["release", "create", tag, ...assets, "--draft", "--target", sha, "--title", tag, ...releaseNotes])
   }
   output("archive", archive)
 } else {
