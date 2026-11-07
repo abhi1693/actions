@@ -27,7 +27,7 @@ on:
         type: string
         default: ''
       notes-directory:
-        description: Directory containing VERSION.md release notes.
+        description: Optional VERSION.md notes directory; missing files use GitHub-generated draft notes.
         type: string
         default: docs/releases
       default-branch:

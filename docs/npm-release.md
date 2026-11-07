@@ -39,7 +39,7 @@ bytes match. Publication is attempted once; bounded registry polling never repub
 
 RBAC currently publishes 0.0.1. Land the reviewed actions and RBAC caller changes,
 choose and approve the next version (normally 0.0.2), update package.json and both
-lockfile root versions, and add docs/releases/VERSION.md. Run Prepare release on
+lockfile root versions, and optionally add docs/releases/VERSION.md for custom notes. Run Prepare release on
 that exact merged commit, inspect the draft assets and validation, then approve
 publishing the GitHub release. Only a successful npm publish with matching archive
 bytes/provenance proves the rollout. Migrate no other plugins until this succeeds.
