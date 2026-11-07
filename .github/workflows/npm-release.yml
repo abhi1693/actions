@@ -26,8 +26,8 @@ on:
         description: Package-specific build command.
         type: string
         default: npm run build
-      package-check-command:
-        description: Optional smoke check; RELEASE_PACKAGE_DIR points to the extracted archive.
+      package-check-script:
+        description: Optional local Node script; RELEASE_PACKAGE_DIR points to the extracted archive.
         type: string
         default: ''
       notes-directory:
@@ -75,7 +75,7 @@ jobs:
     env:
       PACKAGE_NAME: ${{ inputs.package-name }}
       RELEASE_VERSION: ${{ inputs.version }}
-      PACKAGE_CHECK_COMMAND: ${{ inputs.package-check-command }}
+      PACKAGE_CHECK_SCRIPT: ${{ inputs.package-check-script }}
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
