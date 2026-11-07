@@ -54,3 +54,11 @@ export, image and private-file checks. This is useful for generated migration
 snapshots and discovered API routes that are not explicit package exports.
 The same configuration applies to release preparation and local/CI packaging
 checks; consumers need no copy of the shared validation implementation.
+
+## Existing npm environments
+
+When a package's trusted publisher uses a GitHub environment, pass its existing
+name through the publisher's environment input. Leave it empty for packages
+without an environment. Keep the consumer caller filename and environment
+consistent with the configured npm connection; do not change that identity merely
+to migrate release plumbing. This option does not create or alter npm settings.

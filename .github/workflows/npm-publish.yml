@@ -14,6 +14,10 @@ on:
         description: Preparation caller filename in the immutable release tag.
         type: string
         default: release.yml
+      environment:
+        description: Existing GitHub environment used by the npm trusted publisher.
+        type: string
+        default: ''
       working-directory:
         type: string
         default: .
@@ -27,6 +31,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   publish:
+    environment: ${{ inputs.environment }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
