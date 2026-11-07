@@ -10,10 +10,10 @@ on:
         description: Published stable release tag to verify and publish.
         required: true
         type: string
-      preparation-revision:
-        description: Exact shared workflow commit that attested the prepared archive.
-        required: true
+      preparation-workflow:
+        description: Preparation caller filename in the immutable release tag.
         type: string
+        default: release.yml
       working-directory:
         type: string
         default: .
@@ -42,6 +42,7 @@ jobs:
       PACKAGE_NAME: ${{ inputs.package-name }}
       RELEASE_TAG: ${{ inputs.tag }}
       DEFAULT_BRANCH: ${{ inputs.default-branch }}
+      PREPARATION_WORKFLOW: ${{ inputs.preparation-workflow }}
     steps:
       - name: Checkout released source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -67,7 +68,7 @@ jobs:
           echo "source-sha=$RELEASE_SOURCE_SHA" >> "$GITHUB_OUTPUT"
       - name: Download and verify prepared release
         env:
-          SIGNER_DIGEST: ${{ inputs.preparation-revision }}
+          SIGNER_DIGEST: ${{ steps.source.outputs.preparation-revision }}
           SOURCE_SHA: ${{ steps.source.outputs.source-sha }}
           ARCHIVE: ${{ steps.source.outputs.archive }}
         run: |

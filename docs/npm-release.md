@@ -3,7 +3,7 @@
 `npm-release.yml` prepares packages; `npm-publish.yml` publishes prepared packages. Together they own the build/archive checks, checksums, GitHub provenance,
 draft assets, exact tag/source validation, npm publish and registry byte verification.
 Consumers keep their CI, event caller, package metadata, notes and optional product smoke check.
-Pin both callers to a reviewed actions commit; record the exact preparation revision for provenance verification. No npm token is accepted or inherited.
+Pin both callers to a reviewed actions commit; derive the preparation revision from the immutable release tag for provenance verification. No npm token is accepted or inherited.
 
 Call after your CI job with `operation: prepare`, `package-name` and `version`,
 granting contents, id-token and attestations write. It creates a draft only.
@@ -15,12 +15,14 @@ into the consumer. With no preset, generic package/export/README checks still ru
 `working-directory` defaults to `.`, `notes-directory` to `docs/releases`, and
 `default-branch` to `master`. Stable versions must already match both manifests.
 
-From a `release: types: [published]` caller, call `npm-publish.yml` with `package-name`, `preparation-revision`
+From a `release: types: [published]` caller, call `npm-publish.yml` with `package-name`
 and `tag: ${{ github.event.release.tag_name || inputs.tag }}`. Grant contents and
 attestations read plus id-token write. A recovery workflow_dispatch runs from the reviewed default branch,
 checks out the immutable release tag, and requires that tag to match the published
-release target and belong to the default branch. Pass the actual preparation SHA
-when recovering assets prepared by an older shared revision. Never move a release tag. Keep the caller filename (for example publish.yml) registered
+release target and belong to the default branch. The publisher automatically reads the pinned builder revision from the tagged
+preparation caller, then requires the signed provenance to match that revision
+and the tagged source. There is no per-release SHA input. For a differently named
+preparation caller, set the stable `preparation-workflow` filename once. Never move a release tag. Keep the caller filename (for example publish.yml) registered
 as the npm trusted publisher in the consumer repository. npm validates the caller
 identity for reusable workflows: https://docs.npmjs.com/trusted-publishers/ .
 Use GitHub-hosted runners, Node 24/npm >=11.5.1 and no token fallback.
