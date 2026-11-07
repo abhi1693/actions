@@ -1,3 +1,4 @@
+import { preparationReference } from "./provenance.mjs"
 import assert from "node:assert/strict"
 import fs from "node:fs"
 import path from "node:path"
@@ -39,9 +40,7 @@ if (process.argv[2] === "source") {
   const preparationWorkflow = process.env.PREPARATION_WORKFLOW || "release.yml"
   assert.match(preparationWorkflow, /^[A-Za-z0-9_-]+\.ya?ml$/, "Use a preparation workflow filename")
   const workflow = git(["show", `${tag}:.github/workflows/${preparationWorkflow}`])
-  const builders = [...workflow.matchAll(/^[ \t]+uses:[ \t]+["']?abhi1693\/actions\/\.github\/workflows\/npm-release\.yml@([0-9a-f]{40})["']?(?:[ \t]+#.*)?[ \t]*$/gm)]
-  assert.equal(builders.length, 1, "Tagged preparation workflow must pin exactly one immutable shared builder")
-  output("preparation-revision", builders[0][1])
+  output("preparation-ref", preparationReference(workflow))
   output("archive", archive)
 } else if (process.argv[2] === "draft") {
   const notes = path.resolve(process.env.NOTES_DIRECTORY, `${pkg.version}.md`)
