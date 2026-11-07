@@ -99,7 +99,7 @@ try {
       "Unsafe package path"
     )
     assert.ok(
-      !/(^|\/)(?:node_modules|tests|\.git)(\/|$)|(^|\/)\.env(?:\.|$)/.test(
+      !/(^|\/)(?:node_modules|tests|\.git|\.test-host)(\/|$)|(^|\/)\.env(?:\.|$)/.test(
         name
       ),
       "Private or test files must not ship"
@@ -107,6 +107,16 @@ try {
   }
   for (const required of ["package.json", "README.md", "LICENSE"])
     assert.ok(files.has(required), `Missing package file: ${required}`)
+  const requiredFiles = pkg.config?.release?.requiredFiles || []
+  assert.ok(Array.isArray(requiredFiles), "config.release.requiredFiles must be an array")
+  for (const name of requiredFiles) {
+    assert.ok(
+      typeof name === "string" && name.length > 0 && !/[\r\n\0\\]/.test(name) &&
+      !path.isAbsolute(name) && !name.split("/").includes(".."),
+      "Required package files must be safe relative paths"
+    )
+    assert.ok(files.has(name), `Missing required package file: ${name}`)
+  }
   const readme = await readFile(path.join(root, "README.md"), "utf8")
   const images = new Set(
     [
