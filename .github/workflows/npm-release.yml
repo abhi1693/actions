@@ -3,7 +3,7 @@ on:
   workflow_call:
     inputs:
       operation:
-        description: check builds and verifies only; prepare creates a draft; publish uses a published release.
+        description: check builds and verifies only; prepare creates a draft. Use npm-publish.yml for publication.
         required: true
         type: string
       package-name:
@@ -16,10 +16,6 @@ on:
         default: .
       version:
         description: Stable package version, required for prepare.
-        type: string
-        default: ''
-      tag:
-        description: Published release tag, required for publish.
         type: string
         default: ''
       build-command:
@@ -41,7 +37,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: npm-${{ inputs.operation }}-${{ inputs.tag || inputs.version || github.ref }}
+  group: npm-${{ inputs.operation }}-${{ inputs.version || github.ref }}
   cancel-in-progress: false
 jobs:
   contract:
@@ -52,17 +48,14 @@ jobs:
         env:
           OPERATION: ${{ inputs.operation }}
           VERSION: ${{ inputs.version }}
-          TAG: ${{ inputs.tag }}
         run: |
           case "$OPERATION" in
             check) ;;
             prepare) test -n "$VERSION" ;;
-            publish) test -n "$TAG" ;;
             *) echo 'Unknown npm release operation' >&2; exit 1 ;;
           esac
   package:
     needs: contract
-    if: inputs.operation != 'publish'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -134,59 +127,3 @@ jobs:
             --repo "$GH_REPO" --bundle "$RUNNER_TEMP/npm-draft-verify/provenance.json" \
             --signer-workflow abhi1693/actions/.github/workflows/npm-release.yml \
             --source-digest "$GITHUB_SHA" --signer-digest "$SIGNER_DIGEST" --deny-self-hosted-runners
-  publish:
-    needs: contract
-    if: inputs.operation == 'publish'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    permissions:
-      contents: read
-      attestations: read
-      id-token: write
-    defaults:
-      run:
-        working-directory: ${{ inputs.working-directory }}
-    env:
-      GH_TOKEN: ${{ github.token }}
-      GH_REPO: ${{ github.repository }}
-      PACKAGE_NAME: ${{ inputs.package-name }}
-      RELEASE_TAG: ${{ inputs.tag }}
-      DEFAULT_BRANCH: ${{ inputs.default-branch }}
-    steps:
-      - name: Checkout released source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-          fetch-depth: 0
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
-        with:
-          node-version: '24'
-          package-manager-cache: false
-      - name: Load release tools at workflow revision
-        id: tools
-        uses: $/.github/actions/npm-release
-      - name: Verify release source and exact assets
-        id: source
-        env:
-          TOOLS: ${{ steps.tools.outputs.path }}
-        run: node "$TOOLS/release.mjs" source
-      - name: Download and verify prepared release
-        env:
-          SIGNER_DIGEST: ${{ steps.tools.outputs.revision }}
-          ARCHIVE: ${{ steps.source.outputs.archive }}
-        run: |
-          mkdir -p "$RUNNER_TEMP/npm-publish"
-          gh release download "$RELEASE_TAG" --pattern "$ARCHIVE" --pattern SHA256SUMS --pattern provenance.json --dir "$RUNNER_TEMP/npm-publish"
-          gh attestation verify "$RUNNER_TEMP/npm-publish/$ARCHIVE" \
-            --repo "$GH_REPO" --bundle "$RUNNER_TEMP/npm-publish/provenance.json" \
-            --signer-workflow abhi1693/actions/.github/workflows/npm-release.yml \
-            --source-digest "$GITHUB_SHA" --signer-digest "$SIGNER_DIGEST" --deny-self-hosted-runners
-      - name: Publish using npm trusted publishing and verify registry bytes
-        env:
-          ARCHIVE: ${{ steps.source.outputs.archive }}
-          TOOLS: ${{ steps.tools.outputs.path }}
-        run: |
-          test -n "$ACTIONS_ID_TOKEN_REQUEST_URL"
-          test -n "$ACTIONS_ID_TOKEN_REQUEST_TOKEN"
-          node "$TOOLS/publish.mjs" "$RUNNER_TEMP/npm-publish/$ARCHIVE"
