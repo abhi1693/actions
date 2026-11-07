@@ -7,9 +7,11 @@ Pin both callers to the same reviewed actions commit. No npm token is accepted o
 
 Call after your CI job with `operation: prepare`, `package-name` and `version`,
 granting contents, id-token and attestations write. It creates a draft only.
-Supply a relative Node script path such as `scripts/check-package.mjs` in
-`package-check-script` for product behavior checks; it receives the extracted
-archive directory through `RELEASE_PACKAGE_DIR`. `build-command` defaults to `npm run build`.
+Use `package-check-preset: medusa-access-client` for a Medusa access client package:
+the shared consumer check verifies both ESM and CommonJS imports, factory behavior,
+and encoded actor paths against the extracted archive. No check script is copied
+into the consumer. With no preset, generic package/export/README checks still run.
+`build-command` defaults to `npm run build`.
 `working-directory` defaults to `.`, `notes-directory` to `docs/releases`, and
 `default-branch` to `master`. Stable versions must already match both manifests.
 

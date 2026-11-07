@@ -1,3 +1,4 @@
+import { checkPackage } from "./check-package.mjs"
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import { execFileSync } from "node:child_process"
@@ -7,7 +8,6 @@ import {
   mkdir,
   mkdtemp,
   readFile,
-  realpath,
   rm,
   writeFile,
 } from "node:fs/promises"
@@ -133,16 +133,7 @@ try {
   const extractedPackage = path.join(extracted, "package")
   for (const target of exports)
     await access(path.join(extractedPackage, target))
-  if (process.env.PACKAGE_CHECK_SCRIPT) {
-    assert.match(process.env.PACKAGE_CHECK_SCRIPT, /^[A-Za-z0-9_./-]+\.[cm]?js$/, "Use a local Node smoke-check script")
-    const script = await realpath(path.resolve(root, process.env.PACKAGE_CHECK_SCRIPT))
-    assert.ok(script.startsWith(root + path.sep), "Smoke-check script must stay inside the source checkout")
-    execFileSync(process.execPath, [script], {
-      cwd: root,
-      stdio: "inherit",
-      env: { ...process.env, RELEASE_PACKAGE_DIR: extractedPackage },
-    })
-  }
+  await checkPackage(extractedPackage, pkg, process.env.PACKAGE_CHECK_PRESET)
   const digest = createHash("sha256")
     .update(await readFile(archive))
     .digest("hex")
@@ -162,7 +153,7 @@ try {
       readme_images: images.size,
       package: checkOnly ? "verified temporary archive" : archive,
       sha256: digest,
-      package_hook: process.env.PACKAGE_CHECK_SCRIPT ? "verified" : "not configured",
+      consumer_check: process.env.PACKAGE_CHECK_PRESET || "exports-only",
     })
   )
 } finally {
