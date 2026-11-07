@@ -2,4 +2,3 @@ name: Shared action sources
 paths:
   - .
   - .github/actions/workflow-tools
-  - .github/actions/npm-release
