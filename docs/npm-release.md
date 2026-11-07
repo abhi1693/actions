@@ -72,3 +72,11 @@ wrong builder/source identities, ambiguous builders and altered artifacts fail.
 Changing v1 does not invalidate an older prepared artifact: its certificate binds
 the original builder revision and reference. Trusting v1 means trusting the shared
 repository's compatible major line; SHA-pinned consumers opt into exact revisions.
+
+## Existing npm environments
+
+When a package's trusted publisher uses a GitHub environment, pass its existing
+name through the publisher's environment input. Leave it empty for packages
+without an environment. Keep the consumer caller filename and environment
+consistent with the configured npm connection; do not change that identity merely
+to migrate release plumbing. This option does not create or alter npm settings.
