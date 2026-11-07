@@ -1,0 +1,25 @@
+name: npm release tools
+description: Locate npm release helpers at the reusable workflow revision.
+outputs:
+  path:
+    description: Absolute helper directory.
+    value: ${{ steps.path.outputs.path }}
+  revision:
+    description: Exact shared helper and signer revision.
+    value: ${{ steps.path.outputs.revision }}
+runs:
+  using: composite
+  steps:
+    - id: path
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        echo "path=$ACTION_PATH" >> "$GITHUB_OUTPUT"
+        node --input-type=module -e '
+          import fs from "node:fs"
+          const revision = process.env.ACTION_PATH.split("/").find(part => /^[0-9a-f]{40}$/.test(part))
+          if (!revision) throw new Error("Shared workflow helpers must resolve to an immutable revision")
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `revision=${revision}\n`)
+        '
+
