@@ -68,17 +68,15 @@ jobs:
           echo "source-sha=$RELEASE_SOURCE_SHA" >> "$GITHUB_OUTPUT"
       - name: Download and verify prepared release
         env:
-          SIGNER_DIGEST: ${{ steps.source.outputs.preparation-revision }}
-          SOURCE_SHA: ${{ steps.source.outputs.source-sha }}
+          PREPARATION_REF: ${{ steps.source.outputs.preparation-ref }}
+          RELEASE_SOURCE_SHA: ${{ steps.source.outputs.source-sha }}
+          TOOLS: ${{ steps.tools.outputs.path }}
           ARCHIVE: ${{ steps.source.outputs.archive }}
         run: |
-          [[ "$SIGNER_DIGEST" =~ ^[0-9a-f]{40}$ ]]
           mkdir -p "$RUNNER_TEMP/npm-publish"
           gh release download "$RELEASE_TAG" --pattern "$ARCHIVE" --pattern SHA256SUMS --pattern provenance.json --dir "$RUNNER_TEMP/npm-publish"
-          gh attestation verify "$RUNNER_TEMP/npm-publish/$ARCHIVE" \
-            --repo "$GH_REPO" --bundle "$RUNNER_TEMP/npm-publish/provenance.json" \
-            --signer-workflow abhi1693/actions/.github/workflows/npm-release.yml \
-            --source-digest "$SOURCE_SHA" --signer-digest "$SIGNER_DIGEST" --deny-self-hosted-runners
+          node "$TOOLS/provenance.mjs" "$RUNNER_TEMP/npm-publish/$ARCHIVE" \
+            "$RUNNER_TEMP/npm-publish/provenance.json"
       - name: Publish using npm trusted publishing and verify registry bytes
         env:
           ARCHIVE: ${{ steps.source.outputs.archive }}

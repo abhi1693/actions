@@ -3,7 +3,7 @@
 `npm-release.yml` prepares packages; `npm-publish.yml` publishes prepared packages. Together they own the build/archive checks, checksums, GitHub provenance,
 draft assets, exact tag/source validation, npm publish and registry byte verification.
 Consumers keep their CI, event caller, package metadata, notes and optional product smoke check.
-Pin both callers to a reviewed actions commit; derive the preparation revision from the immutable release tag for provenance verification. No npm token is accepted or inherited.
+Use a reviewed shared commit or released version reference, including @v1. The immutable consumer release tag records the preparation reference for provenance verification. No npm token is accepted or inherited.
 
 Call after your CI job with `operation: prepare`, `package-name` and `version`,
 granting contents, id-token and attestations write. It creates a draft only.
@@ -54,3 +54,21 @@ export, image and private-file checks. This is useful for generated migration
 snapshots and discovered API routes that are not explicit package exports.
 The same configuration applies to release preparation and local/CI packaging
 checks; consumers need no copy of the shared validation implementation.
+
+## Version references and historical provenance
+
+Preparation callers may use a full commit SHA or a released version tag such as
+v1 or v1.1.0. The publisher reads that reference from the immutable consumer tag.
+It never resolves a moving version tag at publication/recovery time.
+
+For a version reference, verification first authenticates the artifact signature,
+exact builder tag identity, GitHub issuer, source repository/commit and hosted
+runner certificate. It reads the original immutable buildSignerDigest only from
+the cryptographically verified certificate, then verifies against that exact
+digest. Unsigned/caller-authored predicate fields are not trusted for this policy.
+Full-SHA references retain their explicit signer-digest constraint. Branch refs,
+wrong builder/source identities, ambiguous builders and altered artifacts fail.
+
+Changing v1 does not invalidate an older prepared artifact: its certificate binds
+the original builder revision and reference. Trusting v1 means trusting the shared
+repository's compatible major line; SHA-pinned consumers opt into exact revisions.
