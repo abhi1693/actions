@@ -104,3 +104,5 @@ Workflow versions use Git refs. Releases advance the current supported implement
 | [Caller examples](docs/examples) | Starting points for application CI and container manifests. |
 | [Maintenance & releases](docs/maintenance.md) | Local validation, versioning, promotion and recovery. |
 | [Pull requests](https://github.com/abhi1693/actions/pulls) | Changes under review and a place to contribute improvements. |
+
+See [centralized npm releases](docs/npm-release.md) for npm package release callers and rollout requirements.

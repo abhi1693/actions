@@ -1,0 +1,129 @@
+name: npm package release
+on:
+  workflow_call:
+    inputs:
+      operation:
+        description: check builds and verifies only; prepare creates a draft. Use npm-publish.yml for publication.
+        required: true
+        type: string
+      package-name:
+        description: Exact expected package name.
+        required: true
+        type: string
+      working-directory:
+        description: Package directory relative to the repository root.
+        type: string
+        default: .
+      version:
+        description: Stable package version, required for prepare.
+        type: string
+        default: ''
+      build-command:
+        description: Package-specific build command.
+        type: string
+        default: npm run build
+      package-check-preset:
+        description: Optional built-in consumer smoke check; supported preset is medusa-access-client.
+        type: string
+        default: ''
+      notes-directory:
+        description: Directory containing VERSION.md release notes.
+        type: string
+        default: docs/releases
+      default-branch:
+        description: Branch that published release commits must belong to.
+        type: string
+        default: master
+permissions:
+  contents: read
+concurrency:
+  group: npm-${{ inputs.operation }}-${{ inputs.version || github.ref }}
+  cancel-in-progress: false
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Validate operation
+        env:
+          OPERATION: ${{ inputs.operation }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          case "$OPERATION" in
+            check) ;;
+            prepare) test -n "$VERSION" ;;
+            *) echo 'Unknown npm release operation' >&2; exit 1 ;;
+          esac
+  package:
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      PACKAGE_NAME: ${{ inputs.package-name }}
+      RELEASE_VERSION: ${{ inputs.version }}
+      PACKAGE_CHECK_PRESET: ${{ inputs.package-check-preset }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Checkout validated source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Load release tools at workflow revision
+        id: tools
+        uses: $/.github/actions/npm-release
+      - name: Initialize release directory
+        run: echo "RELEASE_OUTPUT_DIR=$RUNNER_TEMP/npm-release" >> "$GITHUB_ENV"
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Build package
+        env:
+          BUILD_COMMAND: ${{ inputs.build-command }}
+        run: bash -euo pipefail -c "$BUILD_COMMAND"
+      - name: Package and verify archive
+        id: package
+        run: node "$TOOLS/package.mjs"
+        env:
+          TOOLS: ${{ steps.tools.outputs.path }}
+      - name: Attest exact archive
+        if: inputs.operation == 'prepare'
+        id: provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: ${{ steps.package.outputs.package-path }}
+      - name: Create or update same-commit draft
+        if: inputs.operation == 'prepare'
+        id: draft
+        env:
+          TOOLS: ${{ steps.tools.outputs.path }}
+          NOTES_DIRECTORY: ${{ inputs.notes-directory }}
+          PROVENANCE_PATH: ${{ steps.provenance.outputs.bundle-path }}
+        run: node "$TOOLS/release.mjs" draft
+      - name: Download and verify uploaded draft assets
+        if: inputs.operation == 'prepare'
+        env:
+          ARCHIVE: ${{ steps.draft.outputs.archive }}
+          TAG: ${{ steps.package.outputs.tag }}
+          SIGNER_DIGEST: ${{ steps.tools.outputs.revision }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/npm-draft-verify"
+          gh release download "$TAG" --pattern "$ARCHIVE" --pattern SHA256SUMS --pattern provenance.json --dir "$RUNNER_TEMP/npm-draft-verify"
+          cmp "$RELEASE_OUTPUT_DIR/SHA256SUMS" "$RUNNER_TEMP/npm-draft-verify/SHA256SUMS"
+          (cd "$RUNNER_TEMP/npm-draft-verify" && sha256sum -c SHA256SUMS)
+          gh attestation verify "$RUNNER_TEMP/npm-draft-verify/$ARCHIVE" \
+            --repo "$GH_REPO" --bundle "$RUNNER_TEMP/npm-draft-verify/provenance.json" \
+            --signer-workflow abhi1693/actions/.github/workflows/npm-release.yml \
+            --source-digest "$GITHUB_SHA" --signer-digest "$SIGNER_DIGEST" --deny-self-hosted-runners
